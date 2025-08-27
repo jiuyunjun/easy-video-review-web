@@ -356,6 +356,8 @@ def _auto_split_worker(album: str, fname: str, threshold: float):
     video_manager.start()
     scene_manager.detect_scenes(frame_source=video_manager)
     scene_list = scene_manager.get_scene_list()
+    # Skip early scene to avoid capturing loading animation before video is ready
+    scene_list = [(s, e) for s, e in scene_list if s.get_seconds() >= 1.0]
     video_manager.release()
 
     cap = cv2.VideoCapture(src)
