@@ -86,7 +86,6 @@
     <span class='meta'>创建: {{ f.ctime | fmt_time }}</span>
   </figcaption>
   <div class="actions">
-    <a class='btn' href='{{ lurl("download_file_get", album_name=album, filename=f.name) }}'>下载</a>
     {% if ext in ['mp4','webm','ogg','avi','mov','mkv'] %}
     <button class='btn' onclick="exportFile('{{ f.name }}')">导出</button>
     {% endif %}

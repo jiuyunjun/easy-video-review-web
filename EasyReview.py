@@ -14,6 +14,8 @@ from datetime import datetime
 from flask import (
     Flask, request, render_template, abort, flash, send_file, Response, redirect, url_for, jsonify, g
 )
+import json
+from functools import lru_cache
 
 # ------------------ 配置 ------------------
 UPLOAD_ROOT = os.path.abspath("uploads")
@@ -38,6 +40,34 @@ os.makedirs(UPLOAD_ROOT, exist_ok=True)
 def detect_lang():
     seg = request.path.strip('/').split('/', 1)[0]
     g.lang = seg if seg in ("en", "ja") else "zh"
+
+# ------------------ i18n ------------------
+I18N_DIR = os.path.join(os.path.dirname(__file__), 'i18n')
+
+@lru_cache(maxsize=8)
+def _load_i18n(lang: str):
+    path = os.path.join(I18N_DIR, f'{lang}.json')
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+def t(key: str, default: str | None = None) -> str:
+    lang = getattr(g, 'lang', 'zh')
+    data = _load_i18n(lang)
+    if key in data:
+        return data[key]
+    # fallback to zh if missing
+    if lang != 'zh':
+        base = _load_i18n('zh')
+        if key in base:
+            return base[key]
+    return default if default is not None else key
+
+@app.context_processor
+def inject_i18n():
+    return dict(t=t, lang=getattr(g, 'lang', 'zh'))
 
 
 def lurl(endpoint: str, **values) -> str:
@@ -261,8 +291,8 @@ def review(album_name, filename):
     ext = os.path.splitext(fname)[1].lower()
     if ext not in VIDEO_EXTS:
         abort(404)
-    tmpl = 'review.html' if g.lang == 'zh' else f'{g.lang}/review.html'
-    return render_template(tmpl, album=album, filename=fname)
+    # Use a single review template; texts come from i18n files
+    return render_template('review.html', album=album, filename=fname)
 
 @app.route("/<album_name>/review/<path:filename>/snapshots", methods=['GET','POST'])
 def review_snapshots(album_name, filename):

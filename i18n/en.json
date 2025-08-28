@@ -1,0 +1,12 @@
+﻿{
+    "speed_label":  "Speed",
+    "play":  "Play",
+    "pause":  "Pause",
+    "snapshot":  "Snapshot",
+    "delete_all":  "Delete All",
+    "auto_scene":  "Auto Scene",
+    "shortcuts":  "Shortcuts: F/D/S/A back 0.5/1/3/5s, J/K/L/; forward 0.5/1/3/5s, space play/pause, Enter save snapshot",
+    "delete":  "Delete",
+    "confirm_delete":  "Delete?",
+    "confirm_delete_all":  "Delete all?"
+}

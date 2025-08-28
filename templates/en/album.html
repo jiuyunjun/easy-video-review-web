@@ -84,6 +84,10 @@
     <span class='meta'>{{ f.size | fmt_bytes }}</span>
   </figcaption>
   <div class="actions">
+    {% if ext in ['mp4','webm','ogg','avi','mov','mkv'] %}
+    <button class='btn' onclick="exportFile('{{ f.name }}')">Export</button>
+    {% endif %}
+    <button class='btn' onclick="delFile('{{ f.name }}')">Delete</button>
     <span class='meta'>Uploaded: {{ f.mtime | fmt_time }}</span>
     <span class='meta'>Created: {{ f.ctime | fmt_time }}</span>
   </div>
@@ -241,8 +245,10 @@ overlay.addEventListener('wheel',e=>{e.preventDefault();const rect=imgEl.getBoun
 </script>
 </body>
 </html>
+{% raw %}<!--
     <a class='btn' href='{{ lurl("download_file_get", album_name=album, filename=f.name) }}'>Download</a>
     {% if ext in ['mp4','webm','ogg','avi','mov','mkv'] %}
     <button class='btn' onclick="exportFile('{{ f.name }}')">Export</button>
     {% endif %}
     <button class='btn' onclick="delFile('{{ f.name }}')">Delete</button>
+-->{% endraw %}

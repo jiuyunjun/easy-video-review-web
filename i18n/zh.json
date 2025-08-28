@@ -1,0 +1,12 @@
+﻿{
+    "speed_label":  "騾溷ｺｦ",
+    "play":  "謦ｭ謾ｾ",
+    "pause":  "證ょ●",
+    "snapshot":  "謌ｪ蝗ｾ",
+    "delete_all":  "蜈ｨ驛ｨ蛻髯､",
+    "auto_scene":  "閾ｪ蜉ｨ蝨ｺ譎ｯ",
+    "shortcuts":  "快捷键: F/D/S/A 后退0.5/1/3/5秒，J/K/L/; 前进0.5/1/3/5秒，空格 播放/暂停，回车 保存截图",
+    "delete":  "删除",
+    "confirm_delete":  "删除?",
+    "confirm_delete_all":  "全部删除?"
+}

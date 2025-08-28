@@ -45,12 +45,21 @@
     .shot .time{font-size:.8rem;}
     .shot button{margin-left:2px;}
     button,.btn{background:var(--primary);color:#fff;border:none;border-radius:4px;padding:.5rem 1rem;cursor:pointer;font:1rem/1.2 system-ui,Arial,sans-serif;}
+    .btn.active{outline:2px solid #fff;}
     #overlay{position:fixed;inset:0;display:none;background:rgba(0,0,0,.85);align-items:center;justify-content:center;z-index:999;}
     #overlay img{max-width:90vw;max-height:90vh;border-radius:6px;transition:transform .2s;}
     #overlay img.dragging{transition:none;}
     #overlay .nav{position:absolute;top:50%;transform:translateY(-50%);background:rgba(0,0,0,.5);border:none;color:#fff;font-size:2rem;padding:.5rem;border-radius:50%;cursor:pointer;user-select:none;}
     #overlay #prev{left:1rem;}
     #overlay #next{right:1rem;}
+    .controls{position:relative}
+    #speedChip{padding:.3rem .6rem;border-radius:999px;border:1px solid #ddd;background:#fff;cursor:pointer}
+    #speedChip.is-non-one{border-color:#888}
+    #speedMenu{position:absolute;right:0;top:2.2rem;min-width:180px;background:#fff;border:1px solid #ddd;border-radius:12px;padding:.5rem;box-shadow:0 6px 20px rgba(0,0,0,.12)}
+    #speedMenu .preset{padding:.4rem .6rem;border-radius:8px;cursor:pointer}
+    #speedMenu .preset:hover{background:#f5f5f5}
+    .sliderRow{display:flex;align-items:center;gap:.5rem;margin-top:.25rem;font-size:.9rem}
+    #osd{position:absolute;right:0;top:-2rem;background:rgba(0,0,0,.65);color:#fff;padding:.25rem .5rem;border-radius:6px;font-size:.85rem}
   </style>
 </head>
 <body>
@@ -69,6 +78,22 @@
       <button class='btn' data-seek='1'>+1s</button>
       <button class='btn' data-seek='3'>+3s</button>
       <button class='btn' data-seek='5'>+5s</button>
+      <div class="controls">
+        <button id="speedChip" aria-haspopup="true" aria-expanded="false" aria-controls="speedMenu" aria-label="Playback speed">1.0×</button>
+        <div id="speedMenu" role="menu" hidden>
+          <div class="preset" role="menuitemradio" aria-checked="true" data-v="0.75">0.75×</div>
+          <div class="preset" role="menuitemradio" data-v="1">1.0×</div>
+          <div class="preset" role="menuitemradio" data-v="1.25">1.25×</div>
+          <div class="preset" role="menuitemradio" data-v="1.5">1.5×</div>
+          <div class="preset" role="menuitemradio" data-v="1.75">1.75×</div>
+          <div class="preset" role="menuitemradio" data-v="2">2.0×</div>
+          <label class="sliderRow">{{ t('speed_label','Speed') }}
+            <input id="speedSlider" type="range" min="0.25" max="3" step="0.01" value="1">
+            <span id="speedVal">1.00×</span>
+          </label>
+        </div>
+        <div id="osd" aria-live="polite" hidden></div>
+      </div>
     </div>
   </div>
   <div id='divider'></div>
@@ -95,6 +120,25 @@ const autoBtn=document.getElementById('autoScene');
 const progress=document.getElementById('sceneProgress');
 const items=[];
 document.querySelectorAll('#controls [data-seek]').forEach(btn=>btn.addEventListener('click',()=>seek(parseFloat(btn.dataset.seek))));
+// Speed controls (chip + menu + slider)
+const chip  = document.getElementById('speedChip');
+const menu  = document.getElementById('speedMenu');
+const slider= document.getElementById('speedSlider');
+const val   = document.getElementById('speedVal');
+const osd   = document.getElementById('osd');
+const clamp = (x,a,b)=>Math.min(b,Math.max(a,x));
+const round = x=>Math.round(x*100)/100;
+function loadSpeed(){const s=Number(localStorage.getItem('playbackSpeed')||1);applySpeed(clamp(s,0.25,3));}
+function applySpeed(s,show=true){s=round(s);video.playbackRate=s;if('preservesPitch' in video) video.preservesPitch=true;chip.textContent=(s.toFixed(2).replace(/\.00$/,'')+'×');slider.value=s;val.textContent=chip.textContent;chip.classList.toggle('is-non-one',s!==1);localStorage.setItem('playbackSpeed',s);if(show) showOSD(chip.textContent);} 
+let osdTimer;function showOSD(t){osd.textContent=t;osd.hidden=false;clearTimeout(osdTimer);osdTimer=setTimeout(()=>osd.hidden=true,1050);} 
+chip.addEventListener('click',()=>{const open=menu.hidden;menu.hidden=!open;chip.setAttribute('aria-expanded',String(open));});
+menu.addEventListener('click',(e)=>{const p=e.target.closest('.preset');if(!p) return;applySpeed(Number(p.dataset.v));});
+slider.addEventListener('input',e=>{applySpeed(Number(e.target.value),false)});
+slider.addEventListener('change',e=>{applySpeed(Number(e.target.value),true)});
+chip.addEventListener('wheel',(e)=>{e.preventDefault();const step=e.shiftKey?0.05:0.1;const dir=e.deltaY>0?-1:1;applySpeed(clamp(video.playbackRate+dir*step,0.25,3));},{passive:false});
+document.addEventListener('keydown',(e)=>{const step=e.shiftKey?0.05:0.1;if(e.key===']'){applySpeed(clamp(video.playbackRate+step,0.25,3));} else if(e.key==='['){applySpeed(clamp(video.playbackRate-step,0.25,3));} else if(e.key==='\\'){applySpeed(1);} });
+let longPressTimer, restoring=false;chip.addEventListener('touchstart',()=>{longPressTimer=setTimeout(()=>{if(restoring) return;restoring=true;const prev=video.playbackRate;applySpeed(2);const endOnce=()=>{applySpeed(prev);restoring=false;chip.removeEventListener('touchend',endOnce);chip.removeEventListener('touchcancel',endOnce);};chip.addEventListener('touchend',endOnce);chip.addEventListener('touchcancel',endOnce);},400);});chip.addEventListener('touchend',()=>clearTimeout(longPressTimer));chip.addEventListener('touchcancel',()=>clearTimeout(longPressTimer));
+loadSpeed();
 const pauseBtn=document.getElementById('pauseBtn');
 function updatePause(){pauseBtn.textContent=video.paused?'Play':'Pause';}
 pauseBtn.addEventListener('click',()=>{video.paused?video.play():video.pause();});

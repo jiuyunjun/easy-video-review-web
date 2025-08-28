@@ -1,4 +1,4 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang='zh-CN'>
 <head>
   <meta charset='utf-8'>
@@ -8,33 +8,14 @@
     *, *::before, *::after { box-sizing: border-box; }
     :root{--primary:#1976d2;}
     body{ margin:0; font-family:system-ui,Arial,sans-serif; display:flex; height:100dvh; }
-    #player{
-  flex:1; display:flex; flex-direction:column;
-  /* 删掉 height:100vh; 让它继承父容器高度 */
-  min-height:0; /* 2) 关键：允许子项在 flex 中被压缩 */
-}
-
-#videoWrap{
-  flex:1; display:flex; align-items:center; justify-content:center;
-  background:#000; width:100%;
-  min-height:0;     /* 2) 同理，防止被视频控件撑高 */
-  overflow:hidden;  /* 细节：缩放/contain 时不溢出 */
-}
-
-/* 3) 约束 video，不强行 height:100% */
-#video{
-  max-width:100%;
-  max-height:100%;
-  width:100%;
-  height:auto;          /* 关键：让浏览器按比例算高，控件也不会再额外挤出 */
-  object-fit:contain;
-}
+    #player{ flex:1; display:flex; flex-direction:column; min-height:0; }
+    #videoWrap{ flex:1; display:flex; align-items:center; justify-content:center; background:#000; width:100%; min-height:0; overflow:hidden; }
+    #video{ max-width:100%; max-height:100%; width:100%; height:auto; object-fit:contain; }
     #controls{display:flex;flex-wrap:wrap;gap:4px;justify-content:center;padding:4px;background:#222;width:100%;}
+    button,.btn{background:var(--primary);color:#fff;border:none;border-radius:4px;padding:.5rem 1rem;cursor:pointer;font:1rem/1.2 system-ui,Arial,sans-serif;}
+    .btn.active{outline:2px solid #fff;}
     #divider{ width:4px; background:#ddd; cursor:col-resize; flex:none; height:100dvh; }
-    #shots{
-  width:300px; overflow-y:auto; border-left:1px solid #ccc; padding:8px;
-  display:flex; flex-direction:column; flex:none; height:100dvh; min-height:0;
-}
+    #shots{ width:300px; overflow-y:auto; border-left:1px solid #ccc; padding:8px; display:flex; flex-direction:column; flex:none; height:100dvh; min-height:0; }
     #toolbar{margin-bottom:8px;text-align:right;}
     #help{font-size:.85rem;margin-bottom:8px;color:#333;}
     #list{display:flex;flex-direction:column;gap:8px;}
@@ -44,7 +25,23 @@
     .shot .name{flex:1;font-size:.8rem;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;}
     .shot .time{font-size:.8rem;}
     .shot button{margin-left:2px;}
-    button,.btn{background:var(--primary);color:#fff;border:none;border-radius:4px;padding:.5rem 1rem;cursor:pointer;font:1rem/1.2 system-ui,Arial,sans-serif;}
+    /* Speed chip UI */
+    .controls{position:relative}
+    /* Keep dynamic buttons from resizing when text changes */
+    .gridfix{display:grid;place-items:center}
+    .gridfix > .label,.gridfix > .ghost{grid-area:1/1}
+    .gridfix > .ghost{visibility:hidden}
+    /* Speed chip matches .btn style */
+    #speedChip{padding:.5rem 1rem;border-radius:4px;border:none;background:var(--primary);color:#fff;cursor:pointer;transition:filter .15s ease,background-color .15s ease;display:grid;place-items:center}
+    #speedChip:hover{filter:brightness(0.96)}
+    #speedChip:active{filter:brightness(0.9)}
+    #speedChip.is-non-one{border-color:#888}
+    #speedMenu{position:absolute;right:0;bottom:2.2rem;top:auto;min-width:180px;background:#fff;border:1px solid #ddd;border-radius:12px;padding:.5rem;box-shadow:0 6px 20px rgba(0,0,0,.12)}
+    #speedMenu .preset{padding:.4rem .6rem;border-radius:8px;cursor:pointer}
+    #speedMenu .preset:hover{background:#f5f5f5}
+    .sliderRow{display:flex;align-items:center;gap:.5rem;margin-top:.25rem;font-size:.9rem}
+    #osd{position:absolute;right:0;top:-2rem;background:rgba(0,0,0,.65);color:#fff;padding:.25rem .5rem;border-radius:6px;font-size:.85rem}
+    /* Overlay */
     #overlay{position:fixed;inset:0;display:none;background:rgba(0,0,0,.85);align-items:center;justify-content:center;z-index:999;}
     #overlay img{max-width:90vw;max-height:90vh;border-radius:6px;transition:transform .2s;}
     #overlay img.dragging{transition:none;}
@@ -63,29 +60,48 @@
       <button class='btn' data-seek='-3'>-3s</button>
       <button class='btn' data-seek='-1'>-1s</button>
       <button class='btn' data-seek='-0.5'>-0.5s</button>
-      <button id='pauseBtn' class='btn'>播放</button>
-      <button id='shotBtn' class='btn'>截图</button>
+      <button id='pauseBtn' class='btn gridfix'><span class="label">{{ t('play','播放') }}</span><span class="ghost">{{ t('pause','暂停') }}</span></button>
+      <button id='shotBtn' class='btn'>{{ t('snapshot','截图') }}</button>
       <button class='btn' data-seek='0.5'>+0.5s</button>
       <button class='btn' data-seek='1'>+1s</button>
       <button class='btn' data-seek='3'>+3s</button>
       <button class='btn' data-seek='5'>+5s</button>
+
+      <div class="controls">
+        <button id="speedChip" class="gridfix" aria-haspopup="true" aria-expanded="false" aria-controls="speedMenu" aria-label="Playback speed"><span class="label">1.0×</span><span class="ghost">2.00×</span></button>
+        <div id="speedMenu" role="menu" hidden>
+          <div class="preset" role="menuitemradio" aria-checked="true" data-v="0.75">0.75×</div>
+          <div class="preset" role="menuitemradio" data-v="1">1.0×</div>
+          <div class="preset" role="menuitemradio" data-v="1.25">1.25×</div>
+          <div class="preset" role="menuitemradio" data-v="1.5">1.5×</div>
+          <div class="preset" role="menuitemradio" data-v="1.75">1.75×</div>
+          <div class="preset" role="menuitemradio" data-v="2">2.0×</div>
+          <label class="sliderRow">{{ t('speed_label','速度') }}
+            <input id="speedSlider" type="range" min="0.25" max="3" step="0.01" value="1">
+            <span id="speedVal">1.00×</span>
+          </label>
+        </div>
+        <div id="osd" aria-live="polite" hidden></div>
+      </div>
     </div>
   </div>
   <div id='divider'></div>
   <div id='shots'>
     <div id='toolbar'>
-      <button id='delAll' class='btn'>全部删除</button>
-      <button id='autoScene' class='btn' style='display:none'>自动分场景</button>
+      <button id='delAll' class='btn'>{{ t('delete_all','全部删除') }}</button>
+      <button id='autoScene' class='btn' style='display:none'>{{ t('auto_scene','自动场景') }}</button>
     </div>
     <progress id='sceneProgress' style='display:none;width:100%'></progress>
-    <div id='help'>快捷键: F/D/S/A 后退0.5/1/3/5秒，J/K/L/; 前进0.5/1/3/5秒，空格 播放/暂停，回车 保存截图</div>
+    <div id='help'>{{ t('shortcuts', '快捷键: F/D/S/A 后退0.5/1/3/5秒，J/K/L/; 前进0.5/1/3/5秒，空格 播放/暂停，回车 保存截图') }}</div>
     <div id='list'></div>
   </div>
+
   <div id='overlay'>
     <button id='prev' class='nav' onclick='event.stopPropagation();prev()'>&lsaquo;</button>
     <img>
     <button id='next' class='nav' onclick='event.stopPropagation();next()'>&rsaquo;</button>
   </div>
+
 <script>
 const video=document.getElementById('video');
 const divider=document.getElementById('divider');
@@ -94,68 +110,21 @@ const shots=document.getElementById('list');
 const autoBtn=document.getElementById('autoScene');
 const progress=document.getElementById('sceneProgress');
 const items=[];
+
+function seek(d){ video.currentTime=Math.max(0,video.currentTime+d); }
 document.querySelectorAll('#controls [data-seek]').forEach(btn=>btn.addEventListener('click',()=>seek(parseFloat(btn.dataset.seek))));
+
+// Play/Pause toggle label
 const pauseBtn=document.getElementById('pauseBtn');
-function updatePause(){pauseBtn.textContent=video.paused?'播放':'暂停';}
-pauseBtn.addEventListener('click',()=>{video.paused?video.play():video.pause();});
+function updatePause(){ document.querySelector('#pauseBtn .label').textContent = video.paused ? '{{ t('play','播放') }}' : '{{ t('pause','暂停') }}'; }
+pauseBtn.addEventListener('click',()=>{ video.paused ? video.play() : video.pause(); });
 video.addEventListener('play',updatePause);
 video.addEventListener('pause',updatePause);
 updatePause();
-document.getElementById('shotBtn').addEventListener('click',capture);
-document.getElementById('delAll').onclick=async()=>{
-  if(!confirm('全部删除?'))return;
-  await fetch(snapUrl+'/delete_all',{method:'POST'});
-  await loadShots();
-};
-autoBtn.addEventListener('click',async()=>{
-  if(autoBtn.disabled) return;
-  const val=prompt('请输入分场景阈值(默认27，越大越保守)','27');
-  if(val===null) return;
-  const t=parseFloat(val);
-  const threshold=isNaN(t)?27:t;
-  autoBtn.disabled=true;
-  progress.value=0;progress.max=1;progress.textContent='0%';
-  progress.style.display='block';
-  try{
-    const r=await fetch(snapUrl+'/auto',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({threshold})});
-    const info=await r.json().catch(()=>({}));
-    if(!r.ok||!info.ok) throw new Error(info.msg||'分场景失败');
-  }catch(e){
-    alert(e.message||'分场景失败');
-    progress.style.display='none';
-    autoBtn.disabled=false;
-    return;
-  }
-  const timer=setInterval(async()=>{
-    try{
-      const r=await fetch(snapUrl+'/auto/progress',{cache:'no-store'});
-      const info=await r.json();
-      if(!r.ok){throw new Error();}
-      progress.value=info.progress;
-      progress.textContent=Math.round(info.progress*100)+'%';
-      if(info.done){
-        clearInterval(timer);
-        progress.style.display='none';
-        progress.textContent='';
-        autoBtn.disabled=false;
-        if(!info.ok) alert(info.msg||'分场景失败');
-        else if(!info.saved) alert('未检测到场景');
-        await loadShots();
-      }
-    }catch(e){
-      clearInterval(timer);
-      progress.style.display='none';
-      progress.textContent='';
-      autoBtn.disabled=false;
-      alert('分场景失败');
-    }
-  },500);
-});
-let idx=-1,scale=1,offX=0,offY=0,splitDrag=false;
-function seek(d){video.currentTime=Math.max(0,video.currentTime+d);}
+
+// Keyboard shortcuts
 function handleKey(e){
   if(e.target.tagName==='INPUT' && e.target.type==='text')return;
-  e.stopPropagation();
   const k=e.key.toLowerCase();
   if(k==='f')seek(-0.5);
   else if(k==='d')seek(-1);
@@ -169,142 +138,126 @@ function handleKey(e){
   else if(e.key==='Enter'){e.preventDefault();capture();document.activeElement.blur();}
 }
 document.addEventListener('keydown',handleKey,true);
+
+// Divider drag to resize shots panel
+let splitDrag=false;
 divider.addEventListener('mousedown',e=>{splitDrag=true;document.body.style.userSelect='none';e.preventDefault();});
 document.addEventListener('mousemove',e=>{
-  if(!splitDrag)return;
-  const w=window.innerWidth-e.clientX;
-  const min=200,max=window.innerWidth-200;
-  const width=Math.min(Math.max(w,min),max);
+  if(!splitDrag) return;
+  const w=window.innerWidth-e.clientX; const min=200,max=window.innerWidth-200; const width=Math.min(Math.max(w,min),max);
   document.getElementById('shots').style.width=width+'px';
 });
 document.addEventListener('mouseup',()=>{splitDrag=false;document.body.style.userSelect='';});
+
+// Capture current frame
 async function capture(){
-  const c=document.createElement('canvas');
-  c.width=video.videoWidth;c.height=video.videoHeight;
+  const c=document.createElement('canvas'); c.width=video.videoWidth; c.height=video.videoHeight;
   c.getContext('2d').drawImage(video,0,0,c.width,c.height);
-  const data=c.toDataURL('image/jpeg');
-  const t=video.currentTime;
+  const data=c.toDataURL('image/jpeg'); const t=video.currentTime;
   const res=await fetch(snapUrl,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({time:t,image:data})});
   const info=await res.json();
-  if(info.ok){
-    addShot(info.name,t);
-    if(autoBtn){autoBtn.style.display='none';}
-  }
+  if(info.ok){ addShot(info.name,t); if(autoBtn){autoBtn.style.display='none';} }
 }
+document.getElementById('shotBtn').addEventListener('click',capture);
+
+// Load existing snapshots
 async function loadShots(){
-  const res=await fetch(snapUrl,{cache:'no-store'});
-  const arr=await res.json();
-  shots.innerHTML='';
-  arr.forEach(s=>addShot(s.name,s.time));
-  if(autoBtn){autoBtn.style.display=arr.length?'none':'';}
+  const res=await fetch(snapUrl,{cache:'no-store'}); const arr=await res.json();
+  shots.innerHTML=''; arr.forEach(s=>addShot(s.name,s.time)); if(autoBtn){autoBtn.style.display=arr.length?'none':'';}
   refreshItems();
 }
-function refreshItems(){items.splice(0,items.length,...document.querySelectorAll('#list img'));}
-function sortShots(){
-  [...shots.children].sort((a,b)=>parseFloat(a.querySelector('.time').dataset.t)-parseFloat(b.querySelector('.time').dataset.t)).forEach(n=>shots.appendChild(n));
-  refreshItems();
-}
+function refreshItems(){ items.splice(0,items.length,...document.querySelectorAll('#list img')); }
+function sortShots(){ [...shots.children].sort((a,b)=>parseFloat(a.querySelector('.time').dataset.t)-parseFloat(b.querySelector('.time').dataset.t)).forEach(n=>shots.appendChild(n)); refreshItems(); }
+
+// Rename API helper
 async function renameShot(oldName,prefix){
   const r=await fetch(`${snapUrl}/${encodeURIComponent(oldName)}/rename`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prefix})});
-  const d=await r.json();
-  if(d.ok)return d.name;
-  alert('改名失败');
-  return null;
+  const d=await r.json(); if(d.ok) return d.name; alert('Rename failed'); return null;
 }
+
+// Inline edit helper
 function startEditShot(span,fullName,cb){
-  if(span.dataset.editing)return;
-  span.dataset.editing='1';
-  const base=fullName.replace(/\.jpg$/i,'');
-  const idx=base.lastIndexOf('_');
-  const old=idx>=0?base.slice(0,idx):'';
-  const input=document.createElement('input');
-  input.type='text';
-  input.value=old;
-  input.style.width='100%';
-  span.replaceWith(input);
-  input.focus();
-  input.select();
-  const finish=async(doRename)=>{
-    input.replaceWith(span);
-    span.dataset.editing='';
-    const val=input.value.trim();
-    if(doRename&&val!==old){
-      await cb(val);
-    }else{
-      span.textContent=fullName;
-    }
-  };
+  if(span.dataset.editing) return; span.dataset.editing='1';
+  const base=fullName.replace(/\.jpg$/i,''); const idx=base.lastIndexOf('_'); const old=idx>=0?base.slice(0,idx):'';
+  const input=document.createElement('input'); input.type='text'; input.value=old; input.style.width='100%';
+  span.replaceWith(input); input.focus(); input.select();
+  const finish=async(doRename)=>{ input.replaceWith(span); span.dataset.editing=''; const val=input.value.trim(); if(doRename&&val!==old){ await cb(val); } else { span.textContent=fullName; } };
   input.addEventListener('blur',()=>finish(true));
-  input.addEventListener('keydown',e=>{
-    if(e.key==='Enter'){input.blur();}
-    else if(e.key==='Escape'){input.value=old;finish(false);}
-  });
+  input.addEventListener('keydown',e=>{ if(e.key==='Enter'){input.blur();} else if(e.key==='Escape'){input.value=old;finish(false);} });
 }
+
+// Render a snapshot entry
 function addShot(name,time){
   let currentName=name;
-  const div=document.createElement('div');div.className='shot';
-  const img=document.createElement('img');
-  img.src=`${snapUrl}/${currentName}`;
-  img.dataset.full=img.src;
-  img.addEventListener('click',e=>{e.stopPropagation();showImage(img);});
-
-  const info=document.createElement('div');info.className='info';
-  const nameSpan=document.createElement('span');nameSpan.className='name';nameSpan.textContent=currentName;
-  nameSpan.addEventListener('click',e=>{
-    e.stopPropagation();
-    startEditShot(nameSpan,currentName,async(val)=>{
-      const nn=await renameShot(currentName,val);
-      if(nn){currentName=nn;nameSpan.textContent=nn;img.src=`${snapUrl}/${currentName}`;img.dataset.full=img.src;}
-    });
-  });
-  const timeSpan=document.createElement('span');timeSpan.className='time';timeSpan.dataset.t=time;timeSpan.textContent=time.toFixed(2)+'s';
+  const div=document.createElement('div'); div.className='shot';
+  const img=document.createElement('img'); img.src=`${snapUrl}/${currentName}`; img.dataset.full=img.src; img.addEventListener('click',e=>{e.stopPropagation();showImage(img);});
+  const info=document.createElement('div'); info.className='info';
+  const nameSpan=document.createElement('span'); nameSpan.className='name'; nameSpan.textContent=currentName;
+  nameSpan.addEventListener('click',e=>{ e.stopPropagation(); startEditShot(nameSpan,currentName,async(val)=>{ const nn=await renameShot(currentName,val); if(nn){ currentName=nn; nameSpan.textContent=nn; img.src=`${snapUrl}/${currentName}`; img.dataset.full=img.src; } }); });
+  const timeSpan=document.createElement('span'); timeSpan.className='time'; timeSpan.dataset.t=time; timeSpan.textContent=time.toFixed(2)+'s';
   info.append(nameSpan,timeSpan);
-
-  const del=document.createElement('button');
-  del.className='btn';
-  del.textContent='删除';
-  del.addEventListener('click',async e=>{
-    e.stopPropagation();
-    if(!confirm('删除?'))return;
-    await fetch(`${snapUrl}/${encodeURIComponent(currentName)}/delete`,{method:'POST'});
-    div.remove();
-    refreshItems();
-  });
-
-  div.addEventListener('click',e=>{
-    if(e.target===nameSpan||e.target===del||e.target.tagName==='INPUT')return;
-    video.currentTime=time;
-  });
-
-  div.append(img,info,del);
-  shots.appendChild(div);
-  sortShots();
+  const del=document.createElement('button'); del.className='btn'; del.textContent='{{ t('delete','删除') }}';
+  del.addEventListener('click',async e=>{ e.stopPropagation(); if(!confirm('{{ t('confirm_delete','删除?') }}')) return; await fetch(`${snapUrl}/${encodeURIComponent(currentName)}/delete`,{method:'POST'}); div.remove(); refreshItems(); });
+  div.addEventListener('click',e=>{ if(e.target===nameSpan||e.target===del||e.target.tagName==='INPUT')return; video.currentTime=time; });
+  div.append(img,info,del); shots.appendChild(div); sortShots();
 }
-function showAt(i){
-  if(i<0||i>=items.length)return;
-  idx=i;scale=1;offX=0;offY=0;
-  const o=document.getElementById('overlay');
-  const img=o.querySelector('img');
-  img.src=items[i].dataset.full;
-  o.style.display='flex';
-  updateTransform();
-}
-function showImage(el){showAt(items.indexOf(el));}
-function hide(){const o=document.getElementById('overlay');o.style.display='none';idx=-1;}
-function next(){if(idx<items.length-1)showAt(idx+1);}
-function prev(){if(idx>0)showAt(idx-1);}
-function updateTransform(){const img=document.querySelector('#overlay img');img.style.transform=`translate(${offX}px,${offY}px) scale(${scale})`;}
-document.addEventListener('keydown',e=>{const o=document.getElementById('overlay');if(o.style.display!=='flex')return;if(e.key==='ArrowRight'){next();e.preventDefault();}else if(e.key==='ArrowLeft'){prev();e.preventDefault();}});
-const overlay=document.getElementById('overlay');
-const imgEl=document.querySelector('#overlay img');
-let dragging=false,lastX=0,lastY=0;
-imgEl.addEventListener('mousedown',e=>{if(e.button!==0)return;dragging=true;imgEl.classList.add('dragging');lastX=e.clientX;lastY=e.clientY;e.preventDefault();e.stopPropagation();});
-imgEl.addEventListener('click',e=>e.stopPropagation());
-overlay.addEventListener('click',e=>{if(e.target===overlay)hide();});
-document.addEventListener('mousemove',e=>{if(!dragging)return;offX+=e.clientX-lastX;offY+=e.clientY-lastY;lastX=e.clientX;lastY=e.clientY;updateTransform();});
-document.addEventListener('mouseup',()=>{dragging=false;imgEl.classList.remove('dragging');});
-overlay.addEventListener('wheel',e=>{e.preventDefault();const rect=imgEl.getBoundingClientRect();const cx=e.clientX-(rect.left+rect.width/2);const cy=e.clientY-(rect.top+rect.height/2);const old=scale;scale+=e.deltaY<0?0.1:-0.1;scale=Math.min(Math.max(scale,1),5);const ratio=scale/old;offX-=cx*(ratio-1);offY-=cy*(ratio-1);updateTransform();},{passive:false});
+
+// Overlay view
+const itemsEls=()=>[...document.querySelectorAll('#list img')];
+let idx=-1,scale=1,offX=0,offY=0;
+function updateTransform(){ const img=document.querySelector('#overlay img'); img.style.transform=`translate(${offX}px,${offY}px) scale(${scale})`; }
+function showAt(i){ if(i<0||i>=itemsEls().length) return; idx=i; scale=1; offX=0; offY=0; const o=document.getElementById('overlay'); const img=o.querySelector('img'); img.src=itemsEls()[i].dataset.full; o.style.display='flex'; updateTransform(); }
+function showImage(el){ showAt(itemsEls().indexOf(el)); }
+function hide(){ document.getElementById('overlay').style.display='none'; idx=-1; }
+function next(){ if(idx<itemsEls().length-1) showAt(idx+1); }
+function prev(){ if(idx>0) showAt(idx-1); }
+document.addEventListener('keydown',e=>{ const o=document.getElementById('overlay'); if(o.style.display!=='flex') return; if(e.key==='ArrowRight'){ next(); e.preventDefault(); } else if(e.key==='ArrowLeft'){ prev(); e.preventDefault(); } });
+const overlay=document.getElementById('overlay'); const imgEl=document.querySelector('#overlay img'); let dragging=false,lastX=0,lastY=0;
+imgEl.addEventListener('mousedown',e=>{ if(e.button!==0) return; dragging=true; imgEl.classList.add('dragging'); lastX=e.clientX; lastY=e.clientY; e.preventDefault(); e.stopPropagation(); });
+imgEl.addEventListener('click',e=>e.stopPropagation()); overlay.addEventListener('click',e=>{ if(e.target===overlay) hide(); });
+document.addEventListener('mousemove',e=>{ if(!dragging) return; offX+=e.clientX-lastX; offY+=e.clientY-lastY; lastX=e.clientX; lastY=e.clientY; updateTransform(); });
+document.addEventListener('mouseup',()=>{ dragging=false; imgEl.classList.remove('dragging'); });
+overlay.addEventListener('wheel',e=>{ e.preventDefault(); const rect=imgEl.getBoundingClientRect(); const cx=e.clientX-(rect.left+rect.width/2); const cy=e.clientY-(rect.top+rect.height/2); const old=scale; scale+=e.deltaY<0?0.1:-0.1; scale=Math.min(Math.max(scale,1),5); const ratio=scale/old; offX-=cx*(ratio-1); offY-=cy*(ratio-1); updateTransform(); },{passive:false});
+
+// Auto scene detect
+document.getElementById('delAll').onclick = async()=>{ if(!confirm('{{ t('confirm_delete_all','全部删除?') }}')) return; await fetch(snapUrl+'/delete_all',{method:'POST'}); await loadShots(); };
+if(autoBtn){ autoBtn.addEventListener('click',async()=>{
+  if(autoBtn.disabled) return; const val=prompt('请输入场景阈值(默认27)','27'); if(val===null) return; const t=parseFloat(val); const threshold=isNaN(t)?27:t; autoBtn.disabled=true; progress.value=0; progress.max=1; progress.style.display='block';
+  try{ const r=await fetch(snapUrl+'/auto',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({threshold})}); const info=await r.json().catch(()=>({})); if(!r.ok||!info.ok) throw new Error(info.msg||'自动场景失败'); }
+  catch(e){ alert(e.message||'自动场景失败'); progress.style.display='none'; autoBtn.disabled=false; return; }
+  const timer=setInterval(async()=>{ try{ const r=await fetch(snapUrl+'/auto/progress',{cache:'no-store'}); const info=await r.json(); if(!r.ok) throw new Error(); progress.value=info.progress; if(info.done){ clearInterval(timer); progress.style.display='none'; autoBtn.disabled=false; if(!info.ok) alert(info.msg||'自动场景失败'); else if(!info.saved) alert('未检测到场景'); await loadShots(); } }
+  catch(e){ clearInterval(timer); progress.style.display='none'; autoBtn.disabled=false; alert('自动场景失败'); } },500);
+}); }
+
+// Speed controls (chip + menu + slider)
+const chip  = document.getElementById('speedChip');
+const menu  = document.getElementById('speedMenu');
+const slider= document.getElementById('speedSlider');
+const val   = document.getElementById('speedVal');
+const chipLabel = document.querySelector('#speedChip .label');
+const osd   = document.getElementById('osd');
+const clamp = (x,a,b)=>Math.min(b,Math.max(a,x));
+const round = x=>Math.round(x*100)/100;
+function loadSpeed(){ const s=Number(localStorage.getItem('playbackSpeed')||1); applySpeed(clamp(s,0.25,3)); }
+function applySpeed(s, show=true){ s=round(s); video.playbackRate=s; if('preservesPitch' in video) video.preservesPitch=true; chipLabel.textContent=s.toFixed(2).replace(/\.00$/,'')+'×'; slider.value=s; val.textContent = chipLabel.textContent; chip.classList.toggle('is-non-one', s!==1); localStorage.setItem('playbackSpeed', s); if(show) showOSD(chipLabel.textContent); }
+let osdTimer; function showOSD(t){ osd.textContent=t; osd.hidden=false; clearTimeout(osdTimer); osdTimer=setTimeout(()=>osd.hidden=true,1050); }
+chip.addEventListener('click',()=>{ const open=menu.hidden; menu.hidden=!open; chip.setAttribute('aria-expanded', String(open)); });
+menu.addEventListener('click',(e)=>{ const p=e.target.closest('.preset'); if(!p) return; applySpeed(Number(p.dataset.v)); });
+slider.addEventListener('input',e=>{ applySpeed(Number(e.target.value),false); });
+slider.addEventListener('change',e=>{ applySpeed(Number(e.target.value),true); });
+chip.addEventListener('wheel',(e)=>{ e.preventDefault(); const step=e.shiftKey?0.05:0.1; const dir=e.deltaY>0?-1:1; applySpeed(clamp(video.playbackRate+dir*step,0.25,3)); },{passive:false});
+document.addEventListener('keydown',(e)=>{ const step=e.shiftKey?0.05:0.1; if(e.key===']'){ applySpeed(clamp(video.playbackRate+step,0.25,3)); } else if(e.key==='['){ applySpeed(clamp(video.playbackRate-step,0.25,3)); } else if(e.key==='\\'){ applySpeed(1); } });
+let longPressTimer, restoring=false; chip.addEventListener('touchstart',()=>{ longPressTimer=setTimeout(()=>{ if(restoring) return; restoring=true; const prev=video.playbackRate; applySpeed(2); const endOnce=()=>{ applySpeed(prev); restoring=false; chip.removeEventListener('touchend',endOnce); chip.removeEventListener('touchcancel',endOnce); }; chip.addEventListener('touchend',endOnce); chip.addEventListener('touchcancel',endOnce); },400); });
+chip.addEventListener('touchend',()=>clearTimeout(longPressTimer)); chip.addEventListener('touchcancel',()=>clearTimeout(longPressTimer));
+loadSpeed();
+
+// Init
 loadShots();
 </script>
 </body>
 </html>
+
+
+
+
+
