@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang='zh-CN'>
+<html lang='en'>
 <head>
   <meta charset='utf-8'>
   <link rel="icon" href="{{ url_for('static', filename='favicon.svg') }}" type="image/svg+xml">
-  <title>相册</title>
+  <title>Albums</title>
   <meta name='viewport' content='width=device-width,initial-scale=1'>
   <style>
     body{font-family:system-ui,Arial,sans-serif;margin:0;padding:2rem 1rem;max-width:800px;}
@@ -12,12 +12,12 @@
   </style>
 </head>
 <body>
-<h2>全部相册</h2>
+<h2>All Albums</h2>
 {% for a in albums %}
   <a class='album' href='{{ lurl("album", album_name=a) }}'>{{ a }}</a>
 {% endfor %}
 {% if not albums %}
-  <p>暂无相册，在地址栏输入 <kbd>/album_name</kbd> 创建。</p>
+  <p>No albums. Enter <kbd>/album_name</kbd> in the address bar to create.</p>
 {% endif %}
 </body>
 </html>

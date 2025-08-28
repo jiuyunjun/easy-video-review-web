@@ -12,7 +12,7 @@ import os, shutil, hashlib, mimetypes, io, zipfile, base64
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from flask import (
-    Flask, request, render_template, abort, flash, send_file, Response, redirect, url_for, jsonify
+    Flask, request, render_template, abort, flash, send_file, Response, redirect, url_for, jsonify, g
 )
 
 # ------------------ 配置 ------------------
@@ -32,6 +32,22 @@ app = Flask(__name__, static_folder=UPLOAD_ROOT, static_url_path="/uploads")
 app.config["MAX_CONTENT_LENGTH"] = MAX_CONTENT_LENGTH
 app.secret_key = "local-secret"
 os.makedirs(UPLOAD_ROOT, exist_ok=True)
+
+
+@app.before_request
+def detect_lang():
+    seg = request.path.strip('/').split('/', 1)[0]
+    g.lang = seg if seg in ("en", "ja") else "zh"
+
+
+def lurl(endpoint: str, **values) -> str:
+    lang = getattr(g, "lang", "zh")
+    if lang in ("en", "ja"):
+        endpoint = f"{lang}_{endpoint}"
+    return url_for(endpoint, **values)
+
+
+app.jinja_env.globals["lurl"] = lurl
 
 THUMB_DIR = ".thumbs"
 THUMB_SIZE = (320, 320)
@@ -183,7 +199,8 @@ def partial_response(path: str, mime: str):
 @app.route("/")
 def index():
     albums=[d for d in os.listdir(UPLOAD_ROOT) if os.path.isdir(os.path.join(UPLOAD_ROOT,d))]
-    return render_template('index.html', albums=sorted(albums))
+    tmpl = 'index.html' if g.lang == 'zh' else f'{g.lang}/index.html'
+    return render_template(tmpl, albums=sorted(albums))
 
 @app.route("/<album_name>/stream/<path:filename>")
 def stream(album_name, filename):
@@ -244,7 +261,8 @@ def review(album_name, filename):
     ext = os.path.splitext(fname)[1].lower()
     if ext not in VIDEO_EXTS:
         abort(404)
-    return render_template('review.html', album=album, filename=fname)
+    tmpl = 'review.html' if g.lang == 'zh' else f'{g.lang}/review.html'
+    return render_template(tmpl, album=album, filename=fname)
 
 @app.route("/<album_name>/review/<path:filename>/snapshots", methods=['GET','POST'])
 def review_snapshots(album_name, filename):
@@ -699,7 +717,8 @@ def album(album_name):
         sort = 'mtime'
     if order not in {'asc','desc'}:
         order = 'desc'
-    return render_template('album.html', album=album, files=items, sort=sort, order=order, counts=counts)
+    tmpl = 'album.html' if g.lang == 'zh' else f'{g.lang}/album.html'
+    return render_template(tmpl, album=album, files=items, sort=sort, order=order, counts=counts)
 
 @app.route("/<album_name>/download_all")
 def download_all(album_name):
@@ -764,6 +783,23 @@ def rename_album(album_name):
         return jsonify({'ok': False, 'msg': 'exists'}), 400
     os.rename(src, dst)
     return jsonify({'ok': True, 'new': new})
+
+
+# duplicate routes for language prefixes
+def _clone_routes(lang: str):
+    for rule in list(app.url_map.iter_rules()):
+        if rule.endpoint == 'static' or rule.endpoint.startswith(f'{lang}_'):
+            continue
+        app.add_url_rule(
+            f'/{lang}{rule.rule}',
+            endpoint=f'{lang}_{rule.endpoint}',
+            view_func=app.view_functions[rule.endpoint],
+            methods=rule.methods
+        )
+
+
+for _lang in ("en", "ja"):
+    _clone_routes(_lang)
 
 if __name__=='__main__':
     PORT = 5191

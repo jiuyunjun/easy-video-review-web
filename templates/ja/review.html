@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang='zh-CN'>
+<html lang='ja'>
 <head>
   <meta charset='utf-8'>
   <title>{{ filename }} - Review</title>
@@ -63,8 +63,8 @@
       <button class='btn' data-seek='-3'>-3s</button>
       <button class='btn' data-seek='-1'>-1s</button>
       <button class='btn' data-seek='-0.5'>-0.5s</button>
-      <button id='pauseBtn' class='btn'>播放</button>
-      <button id='shotBtn' class='btn'>截图</button>
+      <button id='pauseBtn' class='btn'>再生</button>
+      <button id='shotBtn' class='btn'>スクリーンショット</button>
       <button class='btn' data-seek='0.5'>+0.5s</button>
       <button class='btn' data-seek='1'>+1s</button>
       <button class='btn' data-seek='3'>+3s</button>
@@ -74,11 +74,11 @@
   <div id='divider'></div>
   <div id='shots'>
     <div id='toolbar'>
-      <button id='delAll' class='btn'>全部删除</button>
-      <button id='autoScene' class='btn' style='display:none'>自动分场景</button>
+      <button id='delAll' class='btn'>すべて削除</button>
+      <button id='autoScene' class='btn' style='display:none'>自動シーン分割</button>
     </div>
     <progress id='sceneProgress' style='display:none;width:100%'></progress>
-    <div id='help'>快捷键: F/D/S/A 后退0.5/1/3/5秒，J/K/L/; 前进0.5/1/3/5秒，空格 播放/暂停，回车 保存截图</div>
+    <div id='help'>ショートカット: F/D/S/A で0.5/1/3/5秒戻る、J/K/L/; で0.5/1/3/5秒進む、スペースで再生/一時停止、Enterで保存</div>
     <div id='list'></div>
   </div>
   <div id='overlay'>
@@ -96,20 +96,20 @@ const progress=document.getElementById('sceneProgress');
 const items=[];
 document.querySelectorAll('#controls [data-seek]').forEach(btn=>btn.addEventListener('click',()=>seek(parseFloat(btn.dataset.seek))));
 const pauseBtn=document.getElementById('pauseBtn');
-function updatePause(){pauseBtn.textContent=video.paused?'播放':'暂停';}
+function updatePause(){pauseBtn.textContent=video.paused?'再生':'一時停止';}
 pauseBtn.addEventListener('click',()=>{video.paused?video.play():video.pause();});
 video.addEventListener('play',updatePause);
 video.addEventListener('pause',updatePause);
 updatePause();
 document.getElementById('shotBtn').addEventListener('click',capture);
 document.getElementById('delAll').onclick=async()=>{
-  if(!confirm('全部删除?'))return;
+  if(!confirm('すべて削除しますか?'))return;
   await fetch(snapUrl+'/delete_all',{method:'POST'});
   await loadShots();
 };
 autoBtn.addEventListener('click',async()=>{
   if(autoBtn.disabled) return;
-  const val=prompt('请输入分场景阈值(默认27，越大越保守)','27');
+  const val=prompt('シーン分割閾値を入力(デフォルト27、大きいほど保守的)','27');
   if(val===null) return;
   const t=parseFloat(val);
   const threshold=isNaN(t)?27:t;
@@ -119,9 +119,9 @@ autoBtn.addEventListener('click',async()=>{
   try{
     const r=await fetch(snapUrl+'/auto',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({threshold})});
     const info=await r.json().catch(()=>({}));
-    if(!r.ok||!info.ok) throw new Error(info.msg||'分场景失败');
+    if(!r.ok||!info.ok) throw new Error(info.msg||'シーン分割に失敗');
   }catch(e){
-    alert(e.message||'分场景失败');
+    alert(e.message||'シーン分割に失敗');
     progress.style.display='none';
     autoBtn.disabled=false;
     return;
@@ -138,8 +138,8 @@ autoBtn.addEventListener('click',async()=>{
         progress.style.display='none';
         progress.textContent='';
         autoBtn.disabled=false;
-        if(!info.ok) alert(info.msg||'分场景失败');
-        else if(!info.saved) alert('未检测到场景');
+        if(!info.ok) alert(info.msg||'シーン分割に失敗');
+        else if(!info.saved) alert('シーンが検出されませんでした');
         await loadShots();
       }
     }catch(e){
@@ -147,7 +147,7 @@ autoBtn.addEventListener('click',async()=>{
       progress.style.display='none';
       progress.textContent='';
       autoBtn.disabled=false;
-      alert('分场景失败');
+      alert('シーン分割に失敗');
     }
   },500);
 });
@@ -208,7 +208,7 @@ async function renameShot(oldName,prefix){
   const r=await fetch(`${snapUrl}/${encodeURIComponent(oldName)}/rename`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prefix})});
   const d=await r.json();
   if(d.ok)return d.name;
-  alert('改名失败');
+  alert('名前の変更に失敗しました');
   return null;
 }
 function startEditShot(span,fullName,cb){
@@ -262,10 +262,10 @@ function addShot(name,time){
 
   const del=document.createElement('button');
   del.className='btn';
-  del.textContent='删除';
+  del.textContent='削除';
   del.addEventListener('click',async e=>{
     e.stopPropagation();
-    if(!confirm('删除?'))return;
+    if(!confirm('削除しますか?'))return;
     await fetch(`${snapUrl}/${encodeURIComponent(currentName)}/delete`,{method:'POST'});
     div.remove();
     refreshItems();
