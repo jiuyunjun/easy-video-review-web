@@ -155,7 +155,7 @@ def _fallback_opencv(src: str, threshold: float) -> Tuple[float, int, List[Tuple
     frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
 
     # 采样步长：~3 fps
-    sample_rate = 3.0
+    sample_rate = 8.0  # ~8 samples/sec for screen recordings
     stride = max(1, int(round((fps or 25.0) / sample_rate)))
 
     # 阈值归一化（用户 0~100 或 0~1）
@@ -167,9 +167,9 @@ def _fallback_opencv(src: str, threshold: float) -> Tuple[float, int, List[Tuple
     lo_thr = base * 0.75
 
     # 时长/距离约束
-    min_len_sec = 2.0          # 最短段时长
-    confirm_window_sec = 0.5   # 峰值确认窗
-    merge_gap_sec = 0.9        # 近切点合并
+    min_len_sec = 0.3          # minimum scene length (s)
+    confirm_window_sec = 0.1   # confirmation window (s)
+    merge_gap_sec = 0.25       # merge nearby cuts (s)
     strong_jump = base * 2.0   # 强变化豁免
 
     w_target = 512
