@@ -419,6 +419,29 @@ def _auto_split_worker(album: str, fname: str, threshold: float):
     # rewind for random access later
     cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
 
+    def plot_variance(var, scenes):
+        try:
+            import matplotlib
+            matplotlib.use('Agg')
+            import matplotlib.pyplot as plt
+        except Exception:
+            return ''
+        buf = io.BytesIO()
+        fig, ax = plt.subplots()
+        ax.plot(var, color='black')
+        for s, e in scenes:
+            ax.axvline(s, color='red', linestyle='--')
+            ax.axvline(e, color='red', linestyle='--')
+            mid = s + (e - s) // 2
+            ax.axvline(mid, color='blue')
+        ax.set_xlabel('Frame')
+        ax.set_ylabel('Variance')
+        fig.tight_layout()
+        fig.savefig(buf, format='png')
+        plt.close(fig)
+        buf.seek(0)
+        return base64.b64encode(buf.getvalue()).decode('ascii')
+
     saved = 0
 
     def save_frame(path, frame):
@@ -440,7 +463,8 @@ def _auto_split_worker(album: str, fname: str, threshold: float):
                 save_frame(os.path.join(out_dir, name), frame)
                 saved = 1
         cap.release()
-        AUTO_RESULT[key] = {"ok": True, "saved": saved, "variance": variance, "fps": fps, "scenes": scene_list}
+        img = plot_variance(variance, scene_list)
+        AUTO_RESULT[key] = {"ok": True, "saved": saved, "variance": variance, "variance_img": img, "fps": fps, "scenes": scene_list}
         AUTO_PROGRESS.pop(key, None)
         return
 
@@ -459,7 +483,8 @@ def _auto_split_worker(album: str, fname: str, threshold: float):
         saved += 1
         AUTO_PROGRESS[key] = 0.5 + 0.5 * (i / total)
     cap.release()
-    AUTO_RESULT[key] = {"ok": True, "saved": saved, "variance": variance, "fps": fps, "scenes": scene_list}
+    img = plot_variance(variance, scene_list)
+    AUTO_RESULT[key] = {"ok": True, "saved": saved, "variance": variance, "variance_img": img, "fps": fps, "scenes": scene_list}
     AUTO_PROGRESS.pop(key, None)
 
 
