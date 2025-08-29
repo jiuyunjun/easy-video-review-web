@@ -17,6 +17,7 @@ from flask import (
 )
 import json
 from functools import lru_cache
+from typing import List, Tuple
 
 # ------------------ 配置 ------------------
 UPLOAD_ROOT = os.path.abspath("uploads")
@@ -393,13 +394,14 @@ def _auto_split_worker(album: str, fname: str, threshold: float):
 
     try:
         import cv2
+        import numpy as np
     except Exception:
         AUTO_RESULT[key] = {"ok": False, "msg": "missing dependency", "saved": 0}
         AUTO_PROGRESS.pop(key, None)
         return
 
-    # Detect scenes using PySceneDetect
-    fps, frame_count, scene_list = detect_scenes(src, threshold)
+    # Detect scenes and collect per-frame metrics
+    fps, frame_count, scene_list, frames, cvals = detect_scenes(src, threshold)
 
     cap = cv2.VideoCapture(src)
     if not cap.isOpened():
@@ -407,19 +409,10 @@ def _auto_split_worker(album: str, fname: str, threshold: float):
         AUTO_PROGRESS.pop(key, None)
         return
 
-    # compute per-frame variance for graph
-    variance = []
-    while True:
-        ok, frame = cap.read()
-        if not ok or frame is None:
-            break
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        variance.append(float(gray.var()))
+    f_arr = np.array(frames, dtype=int)
+    v_arr = np.array(cvals, dtype=float)
 
-    # rewind for random access later
-    cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-
-    def plot_variance(var, scenes):
+    def plot_variance(frames: np.ndarray, vals: np.ndarray, scenes: List[Tuple[int, int]], mids: List[int]) -> str:
         try:
             import matplotlib
             matplotlib.use('Agg')
@@ -428,14 +421,15 @@ def _auto_split_worker(album: str, fname: str, threshold: float):
             return ''
         buf = io.BytesIO()
         fig, ax = plt.subplots()
-        ax.plot(var, color='black')
+        x = frames / fps if fps > 0 else frames
+        ax.plot(x, vals, color='black')
         for s, e in scenes:
-            ax.axvline(s, color='red', linestyle='--')
-            ax.axvline(e, color='red', linestyle='--')
-            mid = s + (e - s) // 2
-            ax.axvline(mid, color='blue')
-        ax.set_xlabel('Frame')
-        ax.set_ylabel('Variance')
+            ax.axvline((s / fps) if fps > 0 else s, color='red', linestyle='--')
+            ax.axvline((e / fps) if fps > 0 else e, color='red', linestyle='--')
+        for m in mids:
+            ax.axvline((m / fps) if fps > 0 else m, color='blue')
+        ax.set_xlabel('Time (s)' if fps > 0 else 'Frame')
+        ax.set_ylabel('content_val')
         fig.tight_layout()
         fig.savefig(buf, format='png')
         plt.close(fig)
@@ -443,6 +437,7 @@ def _auto_split_worker(album: str, fname: str, threshold: float):
         return base64.b64encode(buf.getvalue()).decode('ascii')
 
     saved = 0
+    mid_frames: List[int] = []
 
     def save_frame(path, frame):
         ret, buf = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
@@ -452,39 +447,42 @@ def _auto_split_worker(album: str, fname: str, threshold: float):
     # After detection done, mark half progress
     AUTO_PROGRESS[key] = 0.5
 
-    if not scene_list:
-        if frame_count > 0:
-            mid_f = int(frame_count // 2)
-            cap.set(cv2.CAP_PROP_POS_FRAMES, mid_f)
-            ok, frame = cap.read()
-            if ok and frame is not None:
-                actual = cap.get(cv2.CAP_PROP_POS_MSEC) / 1000.0 if fps > 0 else 0.0
-                name = f"场景1_{actual:.3f}.jpg"
-                save_frame(os.path.join(out_dir, name), frame)
-                saved = 1
-        cap.release()
-        img = plot_variance(variance, scene_list)
-        AUTO_RESULT[key] = {"ok": True, "saved": saved, "variance": variance, "variance_img": img, "fps": fps, "scenes": scene_list}
-        AUTO_PROGRESS.pop(key, None)
-        return
+    scene_ranges = scene_list if scene_list else [(0, frame_count)]
 
-    total = len(scene_list)
-    for i, (start_f, end_f) in enumerate(scene_list, start=1):
-        if end_f <= start_f:
+    for idx, (start_f, end_f) in enumerate(scene_ranges, start=1):
+        mask = (f_arr >= start_f) & (f_arr < end_f) & (v_arr < threshold)
+        if not np.any(mask):
             continue
-        mid_f = start_f + (end_f - start_f) // 2
+        cand = f_arr[mask]
+        mid_f = int(cand[len(cand)//2])
         cap.set(cv2.CAP_PROP_POS_FRAMES, mid_f)
         ok, frame = cap.read()
         if not ok or frame is None:
             continue
         actual = cap.get(cv2.CAP_PROP_POS_MSEC) / 1000.0 if fps > 0 else 0.0
-        name = f"场景{i}_{actual:.3f}.jpg"
+        name = f"场景{idx}_{actual:.3f}.jpg"
         save_frame(os.path.join(out_dir, name), frame)
         saved += 1
-        AUTO_PROGRESS[key] = 0.5 + 0.5 * (i / total)
+        mid_frames.append(mid_f)
+        AUTO_PROGRESS[key] = 0.5 + 0.5 * (idx / len(scene_ranges))
+
     cap.release()
-    img = plot_variance(variance, scene_list)
-    AUTO_RESULT[key] = {"ok": True, "saved": saved, "variance": variance, "variance_img": img, "fps": fps, "scenes": scene_list}
+
+    if saved == 0 and frame_count > 0:
+        mid_f = frame_count // 2
+        cap = cv2.VideoCapture(src)
+        cap.set(cv2.CAP_PROP_POS_FRAMES, mid_f)
+        ok, frame = cap.read()
+        if ok and frame is not None:
+            actual = cap.get(cv2.CAP_PROP_POS_MSEC) / 1000.0 if fps > 0 else 0.0
+            name = f"场景1_{actual:.3f}.jpg"
+            save_frame(os.path.join(out_dir, name), frame)
+            saved = 1
+            mid_frames.append(mid_f)
+        cap.release()
+
+    img = plot_variance(f_arr, v_arr, scene_list, mid_frames)
+    AUTO_RESULT[key] = {"ok": True, "saved": saved, "variance": v_arr.tolist(), "variance_img": img, "fps": fps, "scenes": scene_list}
     AUTO_PROGRESS.pop(key, None)
 
 
