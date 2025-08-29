@@ -10,6 +10,7 @@
 
 import os, shutil, hashlib, mimetypes, io, zipfile, base64
 from concurrent.futures import ThreadPoolExecutor
+from auto_scene import detect_scenes
 from datetime import datetime
 from flask import (
     Flask, request, render_template, abort, flash, send_file, Response, redirect, url_for, jsonify, g
@@ -397,88 +398,8 @@ def _auto_split_worker(album: str, fname: str, threshold: float):
         AUTO_PROGRESS.pop(key, None)
         return
 
-    scene_list = []  # list of (start_frame, end_frame)
-    fps = 0.0
-    frame_count = 0
-
-    # First try FFmpeg based scene detection for better accuracy
-    try:
-        import subprocess, json
-        if shutil.which("ffprobe"):
-            info_cmd = [
-                "ffprobe",
-                "-hide_banner",
-                "-loglevel",
-                "error",
-                "-select_streams",
-                "v:0",
-                "-show_entries",
-                "stream=avg_frame_rate,nb_frames,duration",
-                "-of",
-                "json",
-                src,
-            ]
-            info = json.loads(subprocess.check_output(info_cmd).decode("utf-8"))
-            stream = info["streams"][0]
-            num, den = map(int, stream.get("avg_frame_rate", "0/1").split("/"))
-            fps = num / den if den else 0.0
-            frame_count = int(stream.get("nb_frames") or 0)
-            duration = float(stream.get("duration") or 0.0)
-            if frame_count == 0 and fps > 0:
-                frame_count = int(duration * fps)
-
-            ff_t = threshold / 100.0 if threshold > 1 else threshold
-            esc = src.replace("\\", "\\\\").replace(":", "\\:").replace(",", "\\,")
-            filt = f"movie={esc},select=gt(scene\\,{ff_t})"
-            cut_cmd = [
-                "ffprobe",
-                "-hide_banner",
-                "-loglevel",
-                "error",
-                "-show_frames",
-                "-of",
-                "json",
-                "-f",
-                "lavfi",
-                filt,
-            ]
-            data = json.loads(subprocess.check_output(cut_cmd).decode("utf-8"))
-            cuts = [float(f["pkt_pts_time"]) for f in data.get("frames", [])]
-            frame_cuts = [int(t * fps) for t in cuts if t >= 1.0]
-            bounds = [0] + frame_cuts + [frame_count]
-            scene_list = [
-                (bounds[i], bounds[i + 1]) for i in range(len(bounds) - 1) if bounds[i + 1] > bounds[i]
-            ]
-    except Exception:
-        scene_list = []
-
-    # Fallback to PySceneDetect if FFmpeg is not available
-    if not scene_list:
-        try:
-            from scenedetect import VideoManager, SceneManager
-            from scenedetect.detectors import ContentDetector
-
-            video_manager = VideoManager([src])
-            scene_manager = SceneManager()
-            scene_manager.add_detector(ContentDetector(threshold=threshold))
-            video_manager.start()
-            sd_list = scene_manager.get_scene_list()
-            video_manager.release()
-            sd_list = [(s, e) for s, e in sd_list if s.get_seconds() >= 1.0]
-
-            cap_info = cv2.VideoCapture(src)
-            if not cap_info.isOpened():
-                AUTO_RESULT[key] = {"ok": False, "msg": "open failed", "saved": 0}
-                AUTO_PROGRESS.pop(key, None)
-                return
-            fps = cap_info.get(cv2.CAP_PROP_FPS)
-            frame_count = cap_info.get(cv2.CAP_PROP_FRAME_COUNT)
-            cap_info.release()
-            scene_list = [(s.get_frames(), e.get_frames()) for s, e in sd_list]
-        except Exception:
-            AUTO_RESULT[key] = {"ok": False, "msg": "missing dependency", "saved": 0}
-            AUTO_PROGRESS.pop(key, None)
-            return
+    # Use consolidated detector (ffprobe -> PySceneDetect -> OpenCV fallback)
+    fps, frame_count, scene_list = detect_scenes(src, threshold)
 
     cap = cv2.VideoCapture(src)
     if not cap.isOpened():
