@@ -398,7 +398,7 @@ def _auto_split_worker(album: str, fname: str, threshold: float):
         AUTO_PROGRESS.pop(key, None)
         return
 
-    # Use consolidated detector (ffprobe -> PySceneDetect -> OpenCV fallback)
+    # Detect scenes using PySceneDetect
     fps, frame_count, scene_list = detect_scenes(src, threshold)
 
     cap = cv2.VideoCapture(src)
@@ -436,8 +436,8 @@ def _auto_split_worker(album: str, fname: str, threshold: float):
     for i, (start_f, end_f) in enumerate(scene_list, start=1):
         if end_f <= start_f:
             continue
-        one_third_f = start_f + (end_f - start_f) // 3
-        cap.set(cv2.CAP_PROP_POS_FRAMES, one_third_f)
+        mid_f = start_f + (end_f - start_f) // 2
+        cap.set(cv2.CAP_PROP_POS_FRAMES, mid_f)
         ok, frame = cap.read()
         if not ok or frame is None:
             continue
@@ -465,9 +465,9 @@ def review_snapshot_auto(album_name, filename):
 
     data = request.get_json(silent=True) or {}
     try:
-        threshold = float(data.get('threshold', 18))
+        threshold = float(data.get('threshold', 5))
     except Exception:
-        threshold = 18.0
+        threshold = 5.0
 
     AUTO_PROGRESS[key] = 0.0
     AUTO_RESULT.pop(key, None)
