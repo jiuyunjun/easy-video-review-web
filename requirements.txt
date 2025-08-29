@@ -4,4 +4,5 @@ rawpy
 imageio
 opencv-python
 scenedetect
+matplotlib
 gunicorn

@@ -398,7 +398,7 @@ def _auto_split_worker(album: str, fname: str, threshold: float):
         AUTO_PROGRESS.pop(key, None)
         return
 
-    # Use consolidated detector (ffprobe -> PySceneDetect -> OpenCV fallback)
+    # Detect scenes using PySceneDetect
     fps, frame_count, scene_list = detect_scenes(src, threshold)
 
     cap = cv2.VideoCapture(src)
@@ -406,6 +406,41 @@ def _auto_split_worker(album: str, fname: str, threshold: float):
         AUTO_RESULT[key] = {"ok": False, "msg": "open failed", "saved": 0}
         AUTO_PROGRESS.pop(key, None)
         return
+
+    # compute per-frame variance for graph
+    variance = []
+    while True:
+        ok, frame = cap.read()
+        if not ok or frame is None:
+            break
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        variance.append(float(gray.var()))
+
+    # rewind for random access later
+    cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+
+    def plot_variance(var, scenes):
+        try:
+            import matplotlib
+            matplotlib.use('Agg')
+            import matplotlib.pyplot as plt
+        except Exception:
+            return ''
+        buf = io.BytesIO()
+        fig, ax = plt.subplots()
+        ax.plot(var, color='black')
+        for s, e in scenes:
+            ax.axvline(s, color='red', linestyle='--')
+            ax.axvline(e, color='red', linestyle='--')
+            mid = s + (e - s) // 2
+            ax.axvline(mid, color='blue')
+        ax.set_xlabel('Frame')
+        ax.set_ylabel('Variance')
+        fig.tight_layout()
+        fig.savefig(buf, format='png')
+        plt.close(fig)
+        buf.seek(0)
+        return base64.b64encode(buf.getvalue()).decode('ascii')
 
     saved = 0
 
@@ -428,7 +463,8 @@ def _auto_split_worker(album: str, fname: str, threshold: float):
                 save_frame(os.path.join(out_dir, name), frame)
                 saved = 1
         cap.release()
-        AUTO_RESULT[key] = {"ok": True, "saved": saved}
+        img = plot_variance(variance, scene_list)
+        AUTO_RESULT[key] = {"ok": True, "saved": saved, "variance": variance, "variance_img": img, "fps": fps, "scenes": scene_list}
         AUTO_PROGRESS.pop(key, None)
         return
 
@@ -436,8 +472,8 @@ def _auto_split_worker(album: str, fname: str, threshold: float):
     for i, (start_f, end_f) in enumerate(scene_list, start=1):
         if end_f <= start_f:
             continue
-        one_third_f = start_f + (end_f - start_f) // 3
-        cap.set(cv2.CAP_PROP_POS_FRAMES, one_third_f)
+        mid_f = start_f + (end_f - start_f) // 2
+        cap.set(cv2.CAP_PROP_POS_FRAMES, mid_f)
         ok, frame = cap.read()
         if not ok or frame is None:
             continue
@@ -447,7 +483,8 @@ def _auto_split_worker(album: str, fname: str, threshold: float):
         saved += 1
         AUTO_PROGRESS[key] = 0.5 + 0.5 * (i / total)
     cap.release()
-    AUTO_RESULT[key] = {"ok": True, "saved": saved}
+    img = plot_variance(variance, scene_list)
+    AUTO_RESULT[key] = {"ok": True, "saved": saved, "variance": variance, "variance_img": img, "fps": fps, "scenes": scene_list}
     AUTO_PROGRESS.pop(key, None)
 
 
@@ -465,9 +502,9 @@ def review_snapshot_auto(album_name, filename):
 
     data = request.get_json(silent=True) or {}
     try:
-        threshold = float(data.get('threshold', 18))
+        threshold = float(data.get('threshold', 5))
     except Exception:
-        threshold = 18.0
+        threshold = 5.0
 
     AUTO_PROGRESS[key] = 0.0
     AUTO_RESULT.pop(key, None)

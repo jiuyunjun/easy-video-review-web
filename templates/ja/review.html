@@ -115,6 +115,15 @@ pauseBtn.addEventListener('click',()=>{video.paused?video.play():video.pause();}
 video.addEventListener('play',updatePause);
 video.addEventListener('pause',updatePause);
 updatePause();
+function showVarianceGraph(info){
+const img=info.variance_img;
+if(!img) return;
+const w=window.open('', '_blank');
+if(!w) return;
+w.document.write('<!DOCTYPE html><meta charset="utf-8"><title>Variance</title><style>html,body{margin:0;height:100%;}img{width:100%;height:100%;display:block;object-fit:contain;}</style><img src="data:image/png;base64,'+img+'">');
+w.document.close();
+}
+
 document.getElementById('shotBtn').addEventListener('click',capture);
 document.getElementById('delAll').onclick=async()=>{
   if(!confirm('すべて削除しますか?'))return;
@@ -123,10 +132,10 @@ document.getElementById('delAll').onclick=async()=>{
 };
 autoBtn.addEventListener('click',async()=>{
   if(autoBtn.disabled) return;
-  const val=prompt('シーン刁E��閾値を�E劁EチE��ォルチE7、大きいほど保守的)','18');
+  const val=prompt('シーン刁E��閾値を�E劁EチE��ォルチE7、大きいほど保守的)','5');
   if(val===null) return;
   const t=parseFloat(val);
-  const threshold=isNaN(t)?27:t;
+  const threshold=isNaN(t)?5:t;
   autoBtn.disabled=true;
   progress.value=0;progress.max=1;progress.textContent='0%';
   progress.style.display='block';
@@ -153,8 +162,11 @@ autoBtn.addEventListener('click',async()=>{
         progress.textContent='';
         autoBtn.disabled=false;
         if(!info.ok) alert(info.msg||'シーン刁E��に失敁E);
-        else if(!info.saved) alert('シーンが検�Eされませんでした');
-        await loadShots();
+        else {
+          if(!info.saved) alert('シーンが検�Eされませんでした');
+          await loadShots();
+          showVarianceGraph(info);
+        }
       }
     }catch(e){
       clearInterval(timer);
