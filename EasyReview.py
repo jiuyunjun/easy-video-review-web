@@ -407,6 +407,18 @@ def _auto_split_worker(album: str, fname: str, threshold: float):
         AUTO_PROGRESS.pop(key, None)
         return
 
+    # compute per-frame variance for graph
+    variance = []
+    while True:
+        ok, frame = cap.read()
+        if not ok or frame is None:
+            break
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        variance.append(float(gray.var()))
+
+    # rewind for random access later
+    cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+
     saved = 0
 
     def save_frame(path, frame):
@@ -428,7 +440,7 @@ def _auto_split_worker(album: str, fname: str, threshold: float):
                 save_frame(os.path.join(out_dir, name), frame)
                 saved = 1
         cap.release()
-        AUTO_RESULT[key] = {"ok": True, "saved": saved}
+        AUTO_RESULT[key] = {"ok": True, "saved": saved, "variance": variance, "fps": fps, "scenes": scene_list}
         AUTO_PROGRESS.pop(key, None)
         return
 
@@ -447,7 +459,7 @@ def _auto_split_worker(album: str, fname: str, threshold: float):
         saved += 1
         AUTO_PROGRESS[key] = 0.5 + 0.5 * (i / total)
     cap.release()
-    AUTO_RESULT[key] = {"ok": True, "saved": saved}
+    AUTO_RESULT[key] = {"ok": True, "saved": saved, "variance": variance, "fps": fps, "scenes": scene_list}
     AUTO_PROGRESS.pop(key, None)
 
 

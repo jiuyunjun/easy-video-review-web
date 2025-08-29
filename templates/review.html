@@ -219,13 +219,58 @@ document.addEventListener('mousemove',e=>{ if(!dragging) return; offX+=e.clientX
 document.addEventListener('mouseup',()=>{ dragging=false; imgEl.classList.remove('dragging'); });
 overlay.addEventListener('wheel',e=>{ e.preventDefault(); const rect=imgEl.getBoundingClientRect(); const cx=e.clientX-(rect.left+rect.width/2); const cy=e.clientY-(rect.top+rect.height/2); const old=scale; scale+=e.deltaY<0?0.1:-0.1; scale=Math.min(Math.max(scale,1),5); const ratio=scale/old; offX-=cx*(ratio-1); offY-=cy*(ratio-1); updateTransform(); },{passive:false});
 
+function showVarianceGraph(info){
+  const variance=info.variance||[];
+  const scenes=info.scenes||[];
+  if(!variance.length) return;
+  const w=window.open('', '_blank');
+  if(!w) return;
+  w.document.write('<!DOCTYPE html><meta charset="utf-8"><title>Variance</title><style>html,body{margin:0;height:100%;}canvas{width:100%;height:100%;display:block;}</style><canvas id="c"></canvas>');
+  w.document.close();
+  const canvas=w.document.getElementById('c');
+  const ctx=canvas.getContext('2d');
+  function draw(){
+    canvas.width=canvas.clientWidth;
+    canvas.height=canvas.clientHeight;
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    const n=variance.length-1;
+    if(n<=0) return;
+    const max=Math.max(...variance);
+    ctx.beginPath();
+    ctx.moveTo(0,canvas.height-variance[0]/max*canvas.height);
+    for(let i=1;i<variance.length;i++){
+      const x=i/n*canvas.width;
+      const y=canvas.height-variance[i]/max*canvas.height;
+      ctx.lineTo(x,y);
+    }
+    ctx.strokeStyle='#000';
+    ctx.stroke();
+    scenes.forEach(([s,e])=>{
+      const xs=s/n*canvas.width;
+      const xe=e/n*canvas.width;
+      ctx.setLineDash([4,4]);
+      ctx.strokeStyle='#f00';
+      ctx.beginPath();ctx.moveTo(xs,0);ctx.lineTo(xs,canvas.height);ctx.stroke();
+      ctx.beginPath();ctx.moveTo(xe,0);ctx.lineTo(xe,canvas.height);ctx.stroke();
+      const mid=s+Math.floor((e-s)/2);
+      const xm=mid/n*canvas.width;
+      ctx.setLineDash([]);
+      ctx.strokeStyle='#00f';
+      ctx.beginPath();ctx.moveTo(xm,0);ctx.lineTo(xm,canvas.height);ctx.stroke();
+    });
+    ctx.setLineDash([]);
+  }
+  w.addEventListener('resize',draw);
+  draw();
+}
+
 // Auto scene detect
 document.getElementById('delAll').onclick = async()=>{ if(!confirm('{{ t('confirm_delete_all','全部删除?') }}')) return; await fetch(snapUrl+'/delete_all',{method:'POST'}); await loadShots(); };
 if(autoBtn){ autoBtn.addEventListener('click',async()=>{
   if(autoBtn.disabled) return; const val=prompt('请输入场景阈值(默认5)','5'); if(val===null) return; const t=parseFloat(val); const threshold=isNaN(t)?5:t; autoBtn.disabled=true; progress.value=0; progress.max=1; progress.style.display='block';
   try{ const r=await fetch(snapUrl+'/auto',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({threshold})}); const info=await r.json().catch(()=>({})); if(!r.ok||!info.ok) throw new Error(info.msg||'自动场景失败'); }
   catch(e){ alert(e.message||'自动场景失败'); progress.style.display='none'; autoBtn.disabled=false; return; }
-  const timer=setInterval(async()=>{ try{ const r=await fetch(snapUrl+'/auto/progress',{cache:'no-store'}); const info=await r.json(); if(!r.ok) throw new Error(); progress.value=info.progress; if(info.done){ clearInterval(timer); progress.style.display='none'; autoBtn.disabled=false; if(!info.ok) alert(info.msg||'自动场景失败'); else if(!info.saved) alert('未检测到场景'); await loadShots(); } }
+  const timer=setInterval(async()=>{ try{ const r=await fetch(snapUrl+'/auto/progress',{cache:'no-store'}); const info=await r.json(); if(!r.ok) throw new Error(); progress.value=info.progress; if(info.done){ clearInterval(timer); progress.style.display='none'; autoBtn.disabled=false; if(!info.ok) alert(info.msg||'自动场景失败'); else { if(!info.saved) alert('未检测到场景'); await loadShots(); showVarianceGraph(info); } } }
   catch(e){ clearInterval(timer); progress.style.display='none'; autoBtn.disabled=false; alert('自动场景失败'); } },500);
 }); }
 

@@ -115,6 +115,51 @@ pauseBtn.addEventListener('click',()=>{video.paused?video.play():video.pause();}
 video.addEventListener('play',updatePause);
 video.addEventListener('pause',updatePause);
 updatePause();
+function showVarianceGraph(info){
+const variance=info.variance||[];
+const scenes=info.scenes||[];
+if(!variance.length) return;
+const w=window.open('', '_blank');
+if(!w) return;
+w.document.write('<!DOCTYPE html><meta charset="utf-8"><title>Variance</title><style>html,body{margin:0;height:100%;}canvas{width:100%;height:100%;display:block;}</style><canvas id="c"></canvas>');
+w.document.close();
+const canvas=w.document.getElementById('c');
+const ctx=canvas.getContext('2d');
+function draw(){
+ canvas.width=canvas.clientWidth;
+ canvas.height=canvas.clientHeight;
+ ctx.clearRect(0,0,canvas.width,canvas.height);
+ const n=variance.length-1;
+ if(n<=0) return;
+ const max=Math.max(...variance);
+ ctx.beginPath();
+ ctx.moveTo(0,canvas.height-variance[0]/max*canvas.height);
+ for(let i=1;i<variance.length;i++){
+  const x=i/n*canvas.width;
+  const y=canvas.height-variance[i]/max*canvas.height;
+  ctx.lineTo(x,y);
+ }
+ ctx.strokeStyle='#000';
+ ctx.stroke();
+ scenes.forEach(([s,e])=>{
+  const xs=s/n*canvas.width;
+  const xe=e/n*canvas.width;
+  ctx.setLineDash([4,4]);
+  ctx.strokeStyle='#f00';
+  ctx.beginPath();ctx.moveTo(xs,0);ctx.lineTo(xs,canvas.height);ctx.stroke();
+  ctx.beginPath();ctx.moveTo(xe,0);ctx.lineTo(xe,canvas.height);ctx.stroke();
+  const mid=s+Math.floor((e-s)/2);
+  const xm=mid/n*canvas.width;
+  ctx.setLineDash([]);
+  ctx.strokeStyle='#00f';
+  ctx.beginPath();ctx.moveTo(xm,0);ctx.lineTo(xm,canvas.height);ctx.stroke();
+ });
+ ctx.setLineDash([]);
+}
+w.addEventListener('resize',draw);
+draw();
+}
+
 document.getElementById('shotBtn').addEventListener('click',capture);
 document.getElementById('delAll').onclick=async()=>{
   if(!confirm('すべて削除しますか?'))return;
@@ -153,8 +198,11 @@ autoBtn.addEventListener('click',async()=>{
         progress.textContent='';
         autoBtn.disabled=false;
         if(!info.ok) alert(info.msg||'シーン刁E��に失敁E);
-        else if(!info.saved) alert('シーンが検�Eされませんでした');
-        await loadShots();
+        else {
+          if(!info.saved) alert('シーンが検�Eされませんでした');
+          await loadShots();
+          showVarianceGraph(info);
+        }
       }
     }catch(e){
       clearInterval(timer);
