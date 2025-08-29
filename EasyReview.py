@@ -436,8 +436,8 @@ def _auto_split_worker(album: str, fname: str, threshold: float):
     for i, (start_f, end_f) in enumerate(scene_list, start=1):
         if end_f <= start_f:
             continue
-        mid_f = (start_f + end_f) // 2
-        cap.set(cv2.CAP_PROP_POS_FRAMES, mid_f)
+        one_third_f = start_f + (end_f - start_f) // 3
+        cap.set(cv2.CAP_PROP_POS_FRAMES, one_third_f)
         ok, frame = cap.read()
         if not ok or frame is None:
             continue

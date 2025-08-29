@@ -168,7 +168,7 @@ def _fallback_opencv(src: str, threshold: float) -> Tuple[float, int, List[Tuple
 
     # 时长/距离约束
     min_len_sec = 0.3          # minimum scene length (s)
-    confirm_window_sec = 0.1   # confirmation window (s)
+    confirm_window_sec = 0.18  # confirmation window (s)
     merge_gap_sec = 0.25       # merge nearby cuts (s)
     strong_jump = base * 2.0   # 强变化豁免
 
@@ -336,27 +336,208 @@ def _fallback_opencv(src: str, threshold: float) -> Tuple[float, int, List[Tuple
     return fps, frame_count, scene_list
 
 
-def detect_scenes(src: str, threshold: float) -> Tuple[float, int, List[Tuple[int, int]]]:
-    """Composite detector: ffprobe -> PySceneDetect -> OpenCV fallback."""
-    # Try ffprobe with adaptive relaxation if scenes too few
-    fps, total, scenes = _try_ffprobe_detect(src, threshold)
-    if len(scenes) <= 1 and threshold > 0:
-        for fac in (0.75, 0.6, 0.5):
-            fps, total, scenes = _try_ffprobe_detect(src, threshold * fac)
-            if len(scenes) > 1:
+def _opencv_stable_segments(src: str, threshold: float) -> Tuple[float, int, List[Tuple[int, int]]]:
+    """OpenCV-based detector that returns ONLY stable segments as scenes.
+
+    - Samples ~8 fps with downscale and masked ROI to avoid status/nav bars.
+    - Frame-to-frame change score: SSIM distance (gray) + HSV hist Bhattacharyya + edge diff.
+    - EMA smoothing + adaptive hysteresis thresholds.
+    - Stability definition: EMA below `lo` for a confirm window; end when above `hi` for a confirm window.
+    - Merge stable segments separated by very short motion gaps; NO minimum scene length.
+    """
+    try:
+        import cv2
+        import numpy as np
+    except Exception:
+        return 0.0, 0, []
+
+    cap = cv2.VideoCapture(src)
+    if not cap.isOpened():
+        return 0.0, 0, []
+    fps = cap.get(cv2.CAP_PROP_FPS) or 0.0
+    frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+
+    sample_rate = 8.0
+    stride = max(1, int(round((fps or 25.0) / sample_rate)))
+
+    # Normalize threshold 0..1
+    t = (threshold if threshold <= 1 else threshold / 100.0)
+    t = max(0.0, min(1.0, t))
+    base = 0.16 + 0.20 * t
+    hi_thr = base * 1.10
+    lo_thr = base * 0.75
+
+    confirm_window_sec = 0.18
+    merge_gap_sec = 0.25
+
+    w_target = 512
+    idx = 0
+    last_kept = None
+    scores: List[Tuple[int, float]] = []
+    energies: List[float] = []
+
+    while True:
+        ok, frame = cap.read()
+        if not ok or frame is None:
+            break
+        if idx % stride == 0:
+            h, w = frame.shape[:2]
+            if w <= 0 or h <= 0:
+                idx += 1
+                continue
+            scale = w_target / float(w) if w > w_target else 1.0
+            small = cv2.resize(frame, (int(round(w * scale)), int(round(h * scale)))) if scale < 1.0 else frame
+
+            sh, sw = small.shape[:2]
+            top = int(sh * 0.08); bot = int(sh * 0.92)
+            left = int(sw * 0.03); right = int(sw * 0.97)
+            roi = small[top:bot, left:right]
+            if roi.size == 0:
+                idx += 1
+                continue
+            gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+
+            if last_kept is not None:
+                prev_roi, prev_gray = last_kept
+                ssim = _ms_ssim(prev_gray.astype('float32'), gray.astype('float32'))
+                ssim = max(0.0, min(1.0, ssim))
+                d_ssim = 1.0 - ssim
+
+                hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
+                phsv = cv2.cvtColor(prev_roi, cv2.COLOR_BGR2HSV)
+                def _hist(hch, bins, rng):
+                    h = cv2.calcHist([hch], [0], None, [bins], rng)
+                    return cv2.normalize(h, None).astype('float32')
+                d_h = cv2.compareHist(_hist(hsv[...,0], 32, [0,180]), _hist(phsv[...,0], 32, [0,180]), cv2.HISTCMP_BHATTACHARYYA)
+                d_s = cv2.compareHist(_hist(hsv[...,1], 32, [0,256]), _hist(phsv[...,1], 32, [0,256]), cv2.HISTCMP_BHATTACHARYYA)
+                d_hs = float(d_h + d_s) * 0.5
+
+                e1 = cv2.Canny(prev_gray, 80, 160)
+                e2 = cv2.Canny(gray, 80, 160)
+                d_edge = float(cv2.absdiff(e1, e2).mean()) / 255.0
+
+                score = 0.55 * d_ssim + 0.30 * d_hs + 0.15 * d_edge
+                scores.append((idx, score))
+
+                # Optical flow energy (TV-L1 preferred, fallback to Farnebäck)
+                try:
+                    import numpy as np
+                    tvl1 = None
+                    if hasattr(cv2, 'optflow') and hasattr(cv2.optflow, 'DualTVL1OpticalFlow_create'):
+                        tvl1 = cv2.optflow.DualTVL1OpticalFlow_create()
+                    elif hasattr(cv2, 'DualTVL1OpticalFlow_create'):
+                        tvl1 = cv2.DualTVL1OpticalFlow_create()
+                    if tvl1 is not None:
+                        flow = tvl1.calc(prev_gray, gray, None)
+                    else:
+                        flow = cv2.calcOpticalFlowFarneback(prev_gray, gray, None,
+                                                            0.5, 3, 15, 3, 5, 1.2, 0)
+                    mag, ang = cv2.cartToPolar(flow[...,0], flow[...,1])
+                    # Use robust mean (clip large motions) to reduce noise
+                    m = mag.astype('float32')
+                    q = np.quantile(m, 0.95)
+                    m = np.minimum(m, q)
+                    e_val = float(m.mean())
+                except Exception:
+                    e_val = float(abs(float(d_ssim)))  # fallback proxy
+                energies.append(e_val)
+
+            last_kept = (roi, gray)
+        idx += 1
+
+    cap.release()
+
+    if not scores:
+        return fps, frame_count, []
+
+    import numpy as np
+    alpha = 0.35
+    ema = []
+    e = scores[0][1]
+    for _, s in scores:
+        e = alpha * s + (1 - alpha) * e
+        ema.append(e)
+    ema = np.array(ema, dtype=np.float32)
+    raw = np.array([s for _, s in scores], dtype=np.float32)
+
+    # Energy EMA
+    if energies:
+        eema = []
+        ee = float(energies[0])
+        for v in energies:
+            ee = 0.5 * v + 0.5 * ee
+            eema.append(ee)
+        eema = np.array(eema, dtype=np.float32)
+    else:
+        eema = np.zeros(len(ema), dtype=np.float32)
+
+    p85 = float(np.percentile(raw, 85))
+    lift = max(0.0, p85 * 0.9 - base)
+    hi = hi_thr + lift * 0.6
+    lo = lo_thr + lift * 0.3
+
+    # Adaptive thresholds for energy hysteresis
+    if len(eema) > 0:
+        p20 = float(np.percentile(eema, 20))
+        p40 = float(np.percentile(eema, 40))
+        lo_e = p20
+        hi_e = max(p20 * 1.3, p40 * 1.10)
+    else:
+        lo_e = 0.0
+        hi_e = 0.0
+
+    confirm_w = int(round((fps or 25.0) * confirm_window_sec))
+    merge_gap_frames = int(round((fps or 25.0) * merge_gap_sec))
+    confirm_n = max(1, confirm_w // max(1, stride))
+    merge_gap_n = max(0, merge_gap_frames // max(1, stride))
+
+    # Stable only when both appearance and motion are stable
+    stable_flags = (ema <= lo) & (eema <= lo_e)
+
+    scenes: List[Tuple[int, int]] = []
+    i = 0
+    N = len(ema)
+    while i < N:
+        if not stable_flags[i]:
+            i += 1
+            continue
+        run_start = i
+        while i < N and stable_flags[i]:
+            i += 1
+        run_end = i
+        if run_end - run_start < confirm_n:
+            continue
+        j = run_end
+        while j < N:
+            gap_start = j
+            while j < N and not stable_flags[j]:
+                j += 1
+            gap_len = j - gap_start
+            if gap_len == 0 or gap_len > merge_gap_n:
                 break
-    if scenes:
-        return fps, total, scenes
-    fps2, total2, scenes2 = _try_pyscenedetect(src, threshold)
-    if scenes2:
-        return fps2, total2, scenes2
-    return _fallback_opencv(src, threshold)
+            next_stable_start = j
+            while j < N and stable_flags[j]:
+                j += 1
+            next_stable_end = j
+            if next_stable_end - next_stable_start >= confirm_n:
+                run_end = next_stable_end
+            else:
+                break
+        start_frame = scores[run_start][0]
+        last_idx = scores[min(run_end - 1, len(scores) - 1)][0]
+        end_frame = min(frame_count, last_idx + stride)
+        if end_frame > start_frame:
+            scenes.append((start_frame, end_frame))
+    return fps, frame_count, scenes
+def detect_scenes(src: str, threshold: float) -> Tuple[float, int, List[Tuple[int, int]]]:
+    """Detect scenes as STABLE segments (no minimum length)."""
+    return _opencv_stable_segments(src, threshold)
 
 
 if __name__ == '__main__':
     import argparse
     import cv2
-    parser = argparse.ArgumentParser(description='Auto scene detection and mid-frame export.')
+    parser = argparse.ArgumentParser(description='Auto scene detection and one-third-frame export.')
     parser.add_argument('video', help='input video file path')
     parser.add_argument('-o', '--out', required=False, default=None,
                         help='output folder (default: <video_dir>/.review/<video_stem>)')
@@ -384,8 +565,8 @@ if __name__ == '__main__':
     else:
         for i, (s, e) in enumerate(scenes, start=1):
             if e <= s: continue
-            mid = (s + e) // 2
-            cap.set(cv2.CAP_PROP_POS_FRAMES, mid)
+            one_third = s + (e - s) // 3
+            cap.set(cv2.CAP_PROP_POS_FRAMES, one_third)
             ok, frame = cap.read()
             if not ok or frame is None: continue
             ts = cap.get(cv2.CAP_PROP_POS_MSEC) / 1000.0 if fps > 0 else 0.0
