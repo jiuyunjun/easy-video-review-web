@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 # coding: utf-8
 """
 本地图片/视频分享站（单文件）— 功能增强版
@@ -544,9 +544,9 @@ def review_snapshot_auto(album_name, filename):
 
     data = request.get_json(silent=True) or {}
     try:
-        threshold = float(data.get('threshold', 27))
+        threshold = float(data.get('threshold', 18))
     except Exception:
-        threshold = 27.0
+        threshold = 18.0
 
     AUTO_PROGRESS[key] = 0.0
     AUTO_RESULT.pop(key, None)
@@ -834,3 +834,4 @@ for _lang in ("en", "ja"):
 if __name__=='__main__':
     PORT = 5191
     app.run('0.0.0.0',PORT,debug=False)
+

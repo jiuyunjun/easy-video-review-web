@@ -222,7 +222,7 @@ overlay.addEventListener('wheel',e=>{ e.preventDefault(); const rect=imgEl.getBo
 // Auto scene detect
 document.getElementById('delAll').onclick = async()=>{ if(!confirm('{{ t('confirm_delete_all','全部删除?') }}')) return; await fetch(snapUrl+'/delete_all',{method:'POST'}); await loadShots(); };
 if(autoBtn){ autoBtn.addEventListener('click',async()=>{
-  if(autoBtn.disabled) return; const val=prompt('请输入场景阈值(默认27)','27'); if(val===null) return; const t=parseFloat(val); const threshold=isNaN(t)?27:t; autoBtn.disabled=true; progress.value=0; progress.max=1; progress.style.display='block';
+  if(autoBtn.disabled) return; const val=prompt('请输入场景阈值(默认18)','18'); if(val===null) return; const t=parseFloat(val); const threshold=isNaN(t)?18:t; autoBtn.disabled=true; progress.value=0; progress.max=1; progress.style.display='block';
   try{ const r=await fetch(snapUrl+'/auto',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({threshold})}); const info=await r.json().catch(()=>({})); if(!r.ok||!info.ok) throw new Error(info.msg||'自动场景失败'); }
   catch(e){ alert(e.message||'自动场景失败'); progress.style.display='none'; autoBtn.disabled=false; return; }
   const timer=setInterval(async()=>{ try{ const r=await fetch(snapUrl+'/auto/progress',{cache:'no-store'}); const info=await r.json(); if(!r.ok) throw new Error(); progress.value=info.progress; if(info.done){ clearInterval(timer); progress.style.display='none'; autoBtn.disabled=false; if(!info.ok) alert(info.msg||'自动场景失败'); else if(!info.saved) alert('未检测到场景'); await loadShots(); } }
@@ -256,6 +256,7 @@ loadShots();
 </script>
 </body>
 </html>
+
 
 
 

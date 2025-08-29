@@ -1,4 +1,4 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang='en'>
 <head>
   <meta charset='utf-8'>
@@ -153,7 +153,7 @@ document.getElementById('delAll').onclick=async()=>{
 };
 autoBtn.addEventListener('click',async()=>{
   if(autoBtn.disabled) return;
-  const val=prompt('Enter scene threshold (default 27, higher is more conservative)','27');
+  const val=prompt('Enter scene threshold (default 18, higher is more conservative)','18');
   if(val===null) return;
   const t=parseFloat(val);
   const threshold=isNaN(t)?27:t;
@@ -352,3 +352,4 @@ loadShots();
 </script>
 </body>
 </html>
+
