@@ -153,10 +153,10 @@ document.getElementById('delAll').onclick=async()=>{
 };
 autoBtn.addEventListener('click',async()=>{
   if(autoBtn.disabled) return;
-  const val=prompt('Enter scene threshold (default 18, higher is more conservative)','18');
+  const val=prompt('Enter scene threshold (default 5, higher is more conservative)','5');
   if(val===null) return;
   const t=parseFloat(val);
-  const threshold=isNaN(t)?27:t;
+  const threshold=isNaN(t)?5:t;
   autoBtn.disabled=true;
   progress.value=0;progress.max=1;progress.textContent='0%';
   progress.style.display='block';
