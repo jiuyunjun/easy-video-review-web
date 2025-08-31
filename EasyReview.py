@@ -234,8 +234,7 @@ def partial_response(path: str, mime: str):
 @app.route("/")
 def index():
     albums=[d for d in os.listdir(UPLOAD_ROOT) if os.path.isdir(os.path.join(UPLOAD_ROOT,d))]
-    tmpl = 'index.html' if g.lang == 'zh' else f'{g.lang}/index.html'
-    return render_template(tmpl, albums=sorted(albums))
+    return render_template('index.html', albums=sorted(albums))
 
 @app.route("/<album_name>/stream/<path:filename>")
 def stream(album_name, filename):
@@ -700,8 +699,7 @@ def album(album_name):
         sort = 'mtime'
     if order not in {'asc','desc'}:
         order = 'desc'
-    tmpl = 'album.html' if g.lang == 'zh' else f'{g.lang}/album.html'
-    return render_template(tmpl, album=album, files=items, sort=sort, order=order, counts=counts)
+    return render_template('album.html', album=album, files=items, sort=sort, order=order, counts=counts)
 
 @app.route("/<album_name>/download_all")
 def download_all(album_name):

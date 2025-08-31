@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang='zh-CN'>
+<html lang='{{ "zh-CN" if lang=="zh" else ("ja" if lang=="ja" else "en" ) }}'>
 <head>
   <meta charset='utf-8'>
   <title>{{ album }}</title>
@@ -34,31 +34,31 @@
   </style>
 </head>
 <body>
-<h2>{{ album }} <button class='btn' onclick='renameAlbum()'>重命名</button></h2>
+<h2>{{ album }} <button class='btn' onclick='renameAlbum()'>{{ t('rename','重命名') }}</button></h2>
 <p style='font-size:.9rem;color:#555;'>
-  图片 {{ counts.image }} ，视频 {{ counts.video }} ，RAW {{ counts.raw }} ，其他 {{ counts.other }}
+  {{ t('images','图片') }} {{ counts.image }} ，{{ t('videos','视频') }} {{ counts.video }} ，RAW {{ counts.raw }} ，{{ t('others','其他') }} {{ counts.other }}
 </p>
 <div style='text-align:right;margin-bottom:.5rem;'>
-  排序:
+  {{ t('sort','排序') }}:
   <select id='sortsel' onchange="updateSort()">
-    <option value='mtime' {% if sort=='mtime' %}selected{% endif %}>上传时间</option>
-    <option value='name' {% if sort=='name' %}selected{% endif %}>名称</option>
-    <option value='ctime' {% if sort=='ctime' %}selected{% endif %}>创建时间</option>
-    <option value='size' {% if sort=='size' %}selected{% endif %}>大小</option>
+    <option value='mtime' {% if sort=='mtime' %}selected{% endif %}>{{ t('sort_mtime','上传时间') }}</option>
+    <option value='name' {% if sort=='name' %}selected{% endif %}>{{ t('sort_name','名称') }}</option>
+    <option value='ctime' {% if sort=='ctime' %}selected{% endif %}>{{ t('sort_ctime','创建时间') }}</option>
+    <option value='size' {% if sort=='size' %}selected{% endif %}>{{ t('sort_size','大小') }}</option>
   </select>
   <select id='ordersel' onchange="updateSort()">
-    <option value='desc' {% if order=='desc' %}selected{% endif %}>降序</option>
-    <option value='asc' {% if order=='asc' %}selected{% endif %}>升序</option>
+    <option value='desc' {% if order=='desc' %}selected{% endif %}>{{ t('order_desc','降序') }}</option>
+    <option value='asc' {% if order=='asc' %}selected{% endif %}>{{ t('order_asc','升序') }}</option>
   </select>
 </div>
 <div id='upload'>
-  <p>拖拽文件到此或点击选择</p>
+  <p>{{ t('drop_prompt','拖拽文件到此或点击选择') }}</p>
   <input type='file' id='files' multiple style='display:none'>
   <div class='actions'>
-    <button id='btnsel' class='btn' onclick='document.getElementById("files").click()'>选择文件</button>
-    <button id='btnup' class='btn' onclick='upload()'>上传</button>
-    <a class='btn' href='javascript:void(0)' onclick='pack()'>打包下载</a>
-    <button class='btn' onclick='delAll()'>清空相册</button>
+    <button id='btnsel' class='btn' onclick='document.getElementById("files").click()'>{{ t('select_files','选择文件') }}</button>
+    <button id='btnup' class='btn' onclick='upload()'>{{ t('upload','上传') }}</button>
+    <a class='btn' href='javascript:void(0)' onclick='pack()'>{{ t('pack_download','打包下载') }}</a>
+    <button class='btn' onclick='delAll()'>{{ t('clear_album','清空相册') }}</button>
   </div>
   <div id='progwrap'><div id='progbar'></div></div>
   <div id='progtext'></div>
@@ -82,14 +82,14 @@
   <figcaption>
     <span class='name editable' title='{{ f.name }}'>{{ f.name }}</span>
     <span class='meta'>{{ f.size | fmt_bytes }}</span>
-    <span class='meta'>上传: {{ f.mtime | fmt_time }}</span>
-    <span class='meta'>创建: {{ f.ctime | fmt_time }}</span>
+    <span class='meta'>{{ t('uploaded','上传') }}: {{ f.mtime | fmt_time }}</span>
+    <span class='meta'>{{ t('created','创建') }}: {{ f.ctime | fmt_time }}</span>
   </figcaption>
   <div class="actions">
     {% if ext in ['mp4','webm','ogg','avi','mov','mkv'] %}
-    <button class='btn' onclick="exportFile('{{ f.name }}')">导出</button>
+    <button class='btn' onclick="exportFile('{{ f.name }}')">{{ t('export','导出') }}</button>
     {% endif %}
-    <button class='btn' onclick="delFile('{{ f.name }}')">删除</button>
+    <button class='btn' onclick="delFile('{{ f.name }}')">{{ t('delete','删除') }}</button>
   </div>
 </figure>{% endfor %}
 </div>
@@ -104,6 +104,25 @@ const drop=document.getElementById('upload');
 const input=document.getElementById('files');
 const filelist=document.getElementById('filelist');
 let dropped=null;
+const TXT={
+  select_files_alert:"{{ t('select_files_alert','请选择文件') }}",
+  confirm_upload:"{{ t('confirm_upload','确定上传 {n} 个文件吗?') }}",
+  file_exists_replace:"{{ t('file_exists_replace','{name} 已存在，是否替换?') }}",
+  upload_prepare:"{{ t('upload_prepare','准备上传...') }}",
+  upload_failed:"{{ t('upload_failed','失败 {name}') }}",
+  upload_done:"{{ t('upload_done','上传完成') }}",
+  export_prepare:"{{ t('export_prepare','准备导出...') }}",
+  export_progress:"{{ t('export_progress','导出 {percent}%') }}",
+  export_running:"{{ t('export_running','导出中...') }}",
+  export_done:"{{ t('export_done','导出完成') }}",
+  export_failed:"{{ t('export_failed','导出失败') }}",
+  confirm_delete_file:"{{ t('confirm_delete_file','删除 {name} ?') }}",
+  confirm_clear_album:"{{ t('confirm_clear_album','确定清空相册?') }}",
+  pack_progress:"{{ t('pack_progress','打包 {percent}%') }}",
+  new_album_name:"{{ t('new_album_name','新相册名') }}",
+  invalid_name:"{{ t('invalid_name','名称含非法字符') }}",
+  rename_failed:"{{ t('rename_failed','重命名失败') }}"
+};
 function updateSort(){
   const s=document.getElementById('sortsel').value;
   const o=document.getElementById('ordersel').value;
@@ -115,7 +134,7 @@ drop.addEventListener('drop',e=>{e.preventDefault();drop.style.background='var(-
 input.addEventListener('change',()=>{dropped=null;showList(input.files);});
 function showList(fs){filelist.innerHTML='';for(const f of fs){const li=document.createElement('li');li.textContent=f.name;filelist.appendChild(li);}}
 function fmt(b){const u=['B','KB','MB','GB','TB'];let i=0;while(b>=1024&&i<u.length-1){b/=1024;++i;}return b.toFixed(i?1:0)+' '+u[i];}
-async function upload(){const fs=[...(dropped||input.files)];if(!fs.length)return alert('请选择文件');if(!confirm(`确定上传 ${fs.length} 个文件吗?`))return;document.getElementById('btnup').disabled=true;pw.style.display='block';pb.style.width='0';pt.textContent='准备上传...';let done=0,bytes=0,total=fs.reduce((a,b)=>a+b.size,0);
+async function upload(){const fs=[...(dropped||input.files)];if(!fs.length)return alert(TXT.select_files_alert);if(!confirm(TXT.confirm_upload.replace('{n}',fs.length)))return;document.getElementById('btnup').disabled=true;pw.style.display='block';pb.style.width='0';pt.textContent=TXT.upload_prepare;let done=0,bytes=0,total=fs.reduce((a,b)=>a+b.size,0);
   const existing=new Set([...document.querySelectorAll('.grid .name')].map(e=>e.textContent.trim()));
   const limit=4;
   const queue=fs.slice();
@@ -123,28 +142,28 @@ async function upload(){const fs=[...(dropped||input.files)];if(!fs.length)retur
   const sanitize=n=>n.replace(/[\u0000-\u001F\u007F]/g,'').replace(/[\\\/]/g,'');
   const doOne=f=>new Promise(r=>{
     let name=sanitize(f.name);let overwrite=false;
-    if(existing.has(name)){if(!confirm(name+' 已存在，是否替换?')){bytes+=f.size;done++;r();return;}overwrite=true;}
+    if(existing.has(name)){if(!confirm(TXT.file_exists_replace.replace('{name}',name))){bytes+=f.size;done++;r();return;}overwrite=true;}
     const send=()=>{
       const fd=new FormData();fd.append('file',f);
       const x=new XMLHttpRequest();
       x.open('POST',location.pathname+(overwrite?'?overwrite=1':''));
       x.upload.onprogress=e=>{pb.style.width=((bytes+e.loaded)/total*100).toFixed(1)+'%';pt.textContent=`${done}/${fs.length}  ${fmt(bytes+e.loaded)} / ${fmt(total)}`;};
       x.onload=()=>{
-        if(x.status===409&&!overwrite){if(confirm(name+' 已存在，是否替换?')){overwrite=true;send();}else{bytes+=f.size;done++;r();}}
+        if(x.status===409&&!overwrite){if(confirm(TXT.file_exists_replace.replace('{name}',name))){overwrite=true;send();}else{bytes+=f.size;done++;r();}}
         else{bytes+=f.size;done++;existing.add(name);r();}};
-      x.onerror=()=>{alert('失败 '+name);bytes+=f.size;done++;r();};
+      x.onerror=()=>{alert(TXT.upload_failed.replace('{name}',name));bytes+=f.size;done++;r();};
       x.send(fd);
     };
     send();
   });
   const workers=Array(limit).fill(0).map(work);
   await Promise.all(workers);
-  pt.textContent='上传完成';
+  pt.textContent=TXT.upload_done;
   setTimeout(()=>location.reload(),500);} 
-function exportFile(name){const x=new XMLHttpRequest();x.open('GET',`${location.pathname}/export/${encodeURIComponent(name)}`);x.responseType='blob';pw.style.display='block';pb.style.width='0';pt.textContent='准备导出...';x.onprogress=e=>{if(e.lengthComputable){pb.style.width=(e.loaded/e.total*100).toFixed(1)+'%';pt.textContent='导出 '+(e.loaded/e.total*100).toFixed(0)+'%';}else{pt.textContent='导出中...';}};x.onload=()=>{if(x.status===200){const a=document.createElement('a');a.href=URL.createObjectURL(x.response);a.download=name.replace(/\.[^.]+$/,'')+'.zip';document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(a.href);pt.textContent='导出完成';setTimeout(()=>{pw.style.display='none';},1000);}else{alert('导出失败');pw.style.display='none';}};x.onerror=()=>{alert('导出失败');pw.style.display='none';};x.send();}
-function delFile(name){if(!confirm('删除 '+name+' ?'))return;fetch(location.pathname+'/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({file:name})}).then(()=>location.reload());}
-function delAll(){if(!confirm('确定清空相册?'))return;fetch(location.pathname+'/delete_all',{method:'POST'}).then(()=>location.reload());}
-function pack(){const es=new EventSource(location.pathname+'/pack');pw.style.display='block';pb.style.width='0';pt.textContent='';es.onmessage=e=>{if(e.data==='done'){es.close();location.href=location.pathname+'/download_all';}else{pb.style.width=(parseFloat(e.data)*100).toFixed(1)+'%';pt.textContent='打包 '+(parseFloat(e.data)*100).toFixed(0)+'%';}};}
+function exportFile(name){const x=new XMLHttpRequest();x.open('GET',`${location.pathname}/export/${encodeURIComponent(name)}`);x.responseType='blob';pw.style.display='block';pb.style.width='0';pt.textContent=TXT.export_prepare;x.onprogress=e=>{if(e.lengthComputable){pb.style.width=(e.loaded/e.total*100).toFixed(1)+'%';pt.textContent=TXT.export_progress.replace('{percent}',(e.loaded/e.total*100).toFixed(0));}else{pt.textContent=TXT.export_running;}};x.onload=()=>{if(x.status===200){const a=document.createElement('a');a.href=URL.createObjectURL(x.response);a.download=name.replace(/\.[^.]+$/,'')+'.zip';document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(a.href);pt.textContent=TXT.export_done;setTimeout(()=>{pw.style.display='none';},1000);}else{alert(TXT.export_failed);pw.style.display='none';}};x.onerror=()=>{alert(TXT.export_failed);pw.style.display='none';};x.send();}
+function delFile(name){if(!confirm(TXT.confirm_delete_file.replace('{name}',name)))return;fetch(location.pathname+'/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({file:name})}).then(()=>location.reload());}
+function delAll(){if(!confirm(TXT.confirm_clear_album))return;fetch(location.pathname+'/delete_all',{method:'POST'}).then(()=>location.reload());}
+function pack(){const es=new EventSource(location.pathname+'/pack');pw.style.display='block';pb.style.width='0';pt.textContent='';es.onmessage=e=>{if(e.data==='done'){es.close();location.href=location.pathname+'/download_all';}else{pb.style.width=(parseFloat(e.data)*100).toFixed(1)+'%';pt.textContent=TXT.pack_progress.replace('{percent}',(parseFloat(e.data)*100).toFixed(0));}};}
 function renameFile(oldName,newName){
   if(!newName||newName===oldName)return;
   fetch(location.pathname+'/rename_file',{
@@ -186,14 +205,14 @@ function startEdit(span){
   });
 }
 function renameAlbum(){
-  const name=prompt('新相册名', '{{ album }}');
+  const name=prompt(TXT.new_album_name, '{{ album }}');
   if(!name)return;
-  if(!/^[A-Za-z0-9_]+$/.test(name)){alert('名称含非法字符');return;}
+  if(!/^[A-Za-z0-9_]+$/.test(name)){alert(TXT.invalid_name);return;}
   fetch(location.pathname+'/rename',{
     method:'POST',
     headers:{'Content-Type':'application/json'},
     body:JSON.stringify({name})
-  }).then(r=>r.json()).then(d=>{if(d.ok){location.href='/'+encodeURIComponent(d.new);}else{alert('重命名失败');}});
+  }).then(r=>r.json()).then(d=>{if(d.ok){location.href='/'+encodeURIComponent(d.new);}else{alert(TXT.rename_failed);}});
 }
 const items=[...document.querySelectorAll('.grid img')];
 let idx=-1,scale=1,offX=0,offY=0;
