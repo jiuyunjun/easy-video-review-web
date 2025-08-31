@@ -203,6 +203,11 @@ def plot_content_val(
     plt.xlabel("Time (s)")
     plt.ylabel("content_val")
     plt.title("PySceneDetect: content_val vs Time")
+    # thin horizontal reference lines every 5 units on the y-axis
+    y_max = float(v_arr.max()) if v_arr.size else 0.0
+    y_max = math.ceil(y_max / 5.0) * 5.0
+    for y in np.arange(0, y_max + 0.1, 5.0):
+        plt.axhline(y, color="gray", linestyle="--", linewidth=0.5, alpha=0.5, zorder=0)
     for (start_tc, _end_tc) in scenes:
         cut_sec = start_tc.get_seconds()
         plt.axvline(cut_sec, linestyle="--", alpha=0.5)
