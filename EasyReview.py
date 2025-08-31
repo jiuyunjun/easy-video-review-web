@@ -8,15 +8,18 @@
 3. 视频 Range 流式播放（支持拖动 / 极速加载）。
 """
 
-import os, shutil, hashlib, mimetypes, io, zipfile, base64
+import os, shutil, hashlib, mimetypes, io, zipfile, base64, tempfile, uuid
 from concurrent.futures import ThreadPoolExecutor
-from auto_scene import detect_scenes
 from datetime import datetime
+from functools import lru_cache
+from pathlib import Path
+from urllib.parse import quote
+
+from auto_scene import detect_scenes
 from flask import (
     Flask, request, render_template, abort, flash, send_file, Response, redirect, url_for, jsonify, g
 )
 import json
-from functools import lru_cache
 
 # ------------------ 配置 ------------------
 UPLOAD_ROOT = os.path.abspath("uploads")
@@ -85,6 +88,7 @@ THUMB_SIZE = (320, 320)
 executor = ThreadPoolExecutor(max_workers=4)
 AUTO_PROGRESS = {}
 AUTO_RESULT = {}
+TEMP_PLOTS = {}
 PLACEHOLDER = (
     b"GIF89a\x01\x00\x01\x00\x80\x00\x00\x00\x00\x00\xff\xff\xff!\xf9\x04\x01\x00"
     b"\x00\x00\x00,\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02D\x01\x00;"
@@ -427,27 +431,47 @@ def _auto_split_worker(album: str, fname: str, threshold: float):
                 name = f"场景1_{actual:.3f}.jpg"
                 save_frame(os.path.join(out_dir, name), frame)
                 saved = 1
-        cap.release()
-        AUTO_RESULT[key] = {"ok": True, "saved": saved}
-        AUTO_PROGRESS.pop(key, None)
-        return
-
-    total = len(scene_list)
-    for i, (start_f, end_f) in enumerate(scene_list, start=1):
-        if end_f <= start_f:
-            continue
-        mid_f = start_f + (end_f - start_f) // 2
-        cap.set(cv2.CAP_PROP_POS_FRAMES, mid_f)
-        ok, frame = cap.read()
-        if not ok or frame is None:
-            continue
-        actual = cap.get(cv2.CAP_PROP_POS_MSEC) / 1000.0 if fps > 0 else 0.0
-        name = f"场景{i}_{actual:.3f}.jpg"
-        save_frame(os.path.join(out_dir, name), frame)
-        saved += 1
-        AUTO_PROGRESS[key] = 0.5 + 0.5 * (i / total)
+    else:
+        total = len(scene_list)
+        for i, (start_f, end_f) in enumerate(scene_list, start=1):
+            if end_f <= start_f:
+                continue
+            mid_f = start_f + (end_f - start_f) // 2
+            cap.set(cv2.CAP_PROP_POS_FRAMES, mid_f)
+            ok, frame = cap.read()
+            if not ok or frame is None:
+                continue
+            actual = cap.get(cv2.CAP_PROP_POS_MSEC) / 1000.0 if fps > 0 else 0.0
+            name = f"场景{i}_{actual:.3f}.jpg"
+            save_frame(os.path.join(out_dir, name), frame)
+            saved += 1
+            AUTO_PROGRESS[key] = 0.5 + 0.5 * (i / total)
     cap.release()
-    AUTO_RESULT[key] = {"ok": True, "saved": saved}
+
+    plot_url = None
+    try:
+        from detect_plot import PipelineConfig, run_pipeline
+        tmp_dir = Path(tempfile.mkdtemp())
+        cfg = PipelineConfig(
+            video_path=Path(src),
+            detect_threshold=threshold,
+            diff_threshold=threshold,
+            out_dir=None,
+            work_dir=tmp_dir,
+            show_plot=False,
+            save_svg=False,
+            verbose=False,
+        )
+        res = run_pipeline(cfg)
+        png_path = res.get("png")
+        if png_path and os.path.isfile(png_path):
+            token = uuid.uuid4().hex
+            TEMP_PLOTS[token] = str(png_path)
+            plot_url = f"/__plot/{token}"
+    except Exception:
+        plot_url = None
+
+    AUTO_RESULT[key] = {"ok": True, "saved": saved, "plot": plot_url}
     AUTO_PROGRESS.pop(key, None)
 
 
@@ -484,6 +508,14 @@ def review_snapshot_auto_progress(album_name, filename):
     res = AUTO_RESULT.get(key, {})
     done = p is None
     return jsonify({'ok': True, 'progress': p if p is not None else 1.0, 'done': done, **res})
+
+
+@app.route("/__plot/<token>")
+def serve_temp_plot(token):
+    path = TEMP_PLOTS.get(token)
+    if not path or not os.path.isfile(path):
+        abort(404)
+    return send_file(path, mimetype="image/png")
 
 
 @app.route("/<album_name>/export/<path:filename>")
