@@ -10,13 +10,16 @@
 
 import os, shutil, hashlib, mimetypes, io, zipfile, base64
 from concurrent.futures import ThreadPoolExecutor
-from auto_scene import detect_scenes
 from datetime import datetime
+from functools import lru_cache
+from pathlib import Path
+from urllib.parse import quote
+
+from auto_scene import detect_scenes
 from flask import (
     Flask, request, render_template, abort, flash, send_file, Response, redirect, url_for, jsonify, g
 )
 import json
-from functools import lru_cache
 
 # ------------------ 配置 ------------------
 UPLOAD_ROOT = os.path.abspath("uploads")
@@ -427,27 +430,43 @@ def _auto_split_worker(album: str, fname: str, threshold: float):
                 name = f"场景1_{actual:.3f}.jpg"
                 save_frame(os.path.join(out_dir, name), frame)
                 saved = 1
-        cap.release()
-        AUTO_RESULT[key] = {"ok": True, "saved": saved}
-        AUTO_PROGRESS.pop(key, None)
-        return
-
-    total = len(scene_list)
-    for i, (start_f, end_f) in enumerate(scene_list, start=1):
-        if end_f <= start_f:
-            continue
-        mid_f = start_f + (end_f - start_f) // 2
-        cap.set(cv2.CAP_PROP_POS_FRAMES, mid_f)
-        ok, frame = cap.read()
-        if not ok or frame is None:
-            continue
-        actual = cap.get(cv2.CAP_PROP_POS_MSEC) / 1000.0 if fps > 0 else 0.0
-        name = f"场景{i}_{actual:.3f}.jpg"
-        save_frame(os.path.join(out_dir, name), frame)
-        saved += 1
-        AUTO_PROGRESS[key] = 0.5 + 0.5 * (i / total)
+    else:
+        total = len(scene_list)
+        for i, (start_f, end_f) in enumerate(scene_list, start=1):
+            if end_f <= start_f:
+                continue
+            mid_f = start_f + (end_f - start_f) // 2
+            cap.set(cv2.CAP_PROP_POS_FRAMES, mid_f)
+            ok, frame = cap.read()
+            if not ok or frame is None:
+                continue
+            actual = cap.get(cv2.CAP_PROP_POS_MSEC) / 1000.0 if fps > 0 else 0.0
+            name = f"场景{i}_{actual:.3f}.jpg"
+            save_frame(os.path.join(out_dir, name), frame)
+            saved += 1
+            AUTO_PROGRESS[key] = 0.5 + 0.5 * (i / total)
     cap.release()
-    AUTO_RESULT[key] = {"ok": True, "saved": saved}
+
+    plot_url = None
+    try:
+        from detect_plot import PipelineConfig, run_pipeline
+        cfg = PipelineConfig(
+            video_path=Path(src),
+            detect_threshold=threshold,
+            diff_threshold=threshold,
+            out_dir=None,
+            show_plot=False,
+            save_svg=False,
+            verbose=False,
+        )
+        res = run_pipeline(cfg)
+        png_path = res.get("png")
+        if png_path and os.path.isfile(png_path):
+            plot_url = f"/uploads/{quote(album)}/{quote(os.path.basename(png_path))}"
+    except Exception:
+        plot_url = None
+
+    AUTO_RESULT[key] = {"ok": True, "saved": saved, "plot": plot_url}
     AUTO_PROGRESS.pop(key, None)
 
 
