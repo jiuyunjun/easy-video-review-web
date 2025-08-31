@@ -63,6 +63,7 @@ class PipelineConfig:
     detect_threshold: float = 5.0
     diff_threshold: float = 5.0
     out_dir: Optional[Path] = Path("scene_mids_lowdiff")
+    work_dir: Optional[Path] = None
     fig_size: Tuple[float, float] = (16.0, 9.0)
     dpi: int = 300
     show_plot: bool = False
@@ -71,7 +72,7 @@ class PipelineConfig:
     verbose: bool = True
 
 
-def detect_scenes(video_path: Path, detect_threshold: float) -> Tuple[List[Tuple], Path, object]:
+def detect_scenes(video_path: Path, detect_threshold: float, work_dir: Path) -> Tuple[List[Tuple], Path, object]:
     """Run PySceneDetect and export a CSV of metrics."""
     assert video_path.exists(), f"video not found: {video_path!r}"
     stats_manager = StatsManager()
@@ -80,7 +81,8 @@ def detect_scenes(video_path: Path, detect_threshold: float) -> Tuple[List[Tuple
     video = open_video(str(video_path))
     scene_manager.detect_scenes(video=video)
     scenes = scene_manager.get_scene_list()
-    csv_out = video_path.with_suffix(".stats.csv")
+    work_dir.mkdir(parents=True, exist_ok=True)
+    csv_out = work_dir / f"{video_path.stem}.stats.csv"
     with csv_out.open("w", encoding="utf-8", newline="") as f:
         scene_manager.stats_manager.save_to_csv(f)
     return scenes, csv_out, video
@@ -191,6 +193,7 @@ def plot_content_val(
     v_arr: np.ndarray,
     diff_threshold: float,
     mid_times: List[Optional[float]],
+    work_dir: Path,
     fig_size: Tuple[float, float] = (16, 9),
     dpi: int = 300,
     save_png: bool = True,
@@ -216,8 +219,9 @@ def plot_content_val(
         mid_y = np.interp(mid_x, t_arr, v_arr)
         plt.scatter(mid_x, mid_y, s=16, c="red", zorder=3)
     plt.tight_layout()
-    png_path = video_path.with_suffix(".content_val.png") if save_png else None
-    svg_path = video_path.with_suffix(".content_val.svg") if save_svg else None
+    work_dir.mkdir(parents=True, exist_ok=True)
+    png_path = work_dir / f"{video_path.stem}.content_val.png" if save_png else None
+    svg_path = work_dir / f"{video_path.stem}.content_val.svg" if save_svg else None
     if save_png:
         plt.savefig(png_path, dpi=dpi, bbox_inches="tight")
         if verbose:
@@ -233,7 +237,8 @@ def plot_content_val(
 
 
 def run_pipeline(cfg: PipelineConfig) -> dict:
-    scenes, csv_out, video_obj = detect_scenes(cfg.video_path, cfg.detect_threshold)
+    work_dir = cfg.work_dir or cfg.video_path.parent
+    scenes, csv_out, video_obj = detect_scenes(cfg.video_path, cfg.detect_threshold, work_dir)
     if cfg.verbose:
         print(f"scenes: {len(scenes)}")
         print(f"stats: {csv_out}")
@@ -256,6 +261,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
         v_arr,
         cfg.diff_threshold,
         mid_times,
+        work_dir,
         fig_size=cfg.fig_size,
         dpi=cfg.dpi,
         save_png=cfg.save_png,

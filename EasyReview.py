@@ -8,7 +8,7 @@
 3. 视频 Range 流式播放（支持拖动 / 极速加载）。
 """
 
-import os, shutil, hashlib, mimetypes, io, zipfile, base64
+import os, shutil, hashlib, mimetypes, io, zipfile, base64, tempfile, uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from functools import lru_cache
@@ -88,6 +88,7 @@ THUMB_SIZE = (320, 320)
 executor = ThreadPoolExecutor(max_workers=4)
 AUTO_PROGRESS = {}
 AUTO_RESULT = {}
+TEMP_PLOTS = {}
 PLACEHOLDER = (
     b"GIF89a\x01\x00\x01\x00\x80\x00\x00\x00\x00\x00\xff\xff\xff!\xf9\x04\x01\x00"
     b"\x00\x00\x00,\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02D\x01\x00;"
@@ -450,11 +451,13 @@ def _auto_split_worker(album: str, fname: str, threshold: float):
     plot_url = None
     try:
         from detect_plot import PipelineConfig, run_pipeline
+        tmp_dir = Path(tempfile.mkdtemp())
         cfg = PipelineConfig(
             video_path=Path(src),
             detect_threshold=threshold,
             diff_threshold=threshold,
             out_dir=None,
+            work_dir=tmp_dir,
             show_plot=False,
             save_svg=False,
             verbose=False,
@@ -462,7 +465,9 @@ def _auto_split_worker(album: str, fname: str, threshold: float):
         res = run_pipeline(cfg)
         png_path = res.get("png")
         if png_path and os.path.isfile(png_path):
-            plot_url = f"/uploads/{quote(album)}/{quote(os.path.basename(png_path))}"
+            token = uuid.uuid4().hex
+            TEMP_PLOTS[token] = str(png_path)
+            plot_url = f"/__plot/{token}"
     except Exception:
         plot_url = None
 
@@ -503,6 +508,14 @@ def review_snapshot_auto_progress(album_name, filename):
     res = AUTO_RESULT.get(key, {})
     done = p is None
     return jsonify({'ok': True, 'progress': p if p is not None else 1.0, 'done': done, **res})
+
+
+@app.route("/__plot/<token>")
+def serve_temp_plot(token):
+    path = TEMP_PLOTS.get(token)
+    if not path or not os.path.isfile(path):
+        abort(404)
+    return send_file(path, mimetype="image/png")
 
 
 @app.route("/<album_name>/export/<path:filename>")
