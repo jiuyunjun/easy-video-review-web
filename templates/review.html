@@ -161,14 +161,14 @@ async function capture(){
   const data=c.toDataURL('image/jpeg'); const t=video.currentTime;
   const res=await fetch(snapUrl,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({time:t,image:data})});
   const info=await res.json();
-  if(info.ok){ addShot(info.name,t); if(autoBtn){autoBtn.style.display='none';} }
+  if(info.ok){ addShot(info.name,t,t); if(autoBtn){autoBtn.style.display='none';} }
 }
 document.getElementById('shotBtn').addEventListener('click',capture);
 
 // Load existing snapshots
 async function loadShots(){
   const res=await fetch(snapUrl,{cache:'no-store'}); const arr=await res.json();
-  shots.innerHTML=''; arr.forEach(s=>addShot(s.name,s.time)); if(autoBtn){autoBtn.style.display=arr.length?'none':'';}
+  shots.innerHTML=''; arr.forEach(s=>addShot(s.name, s.time, (s.actual??s.time))); if(autoBtn){autoBtn.style.display=arr.length?'none':'';}
   refreshItems();
 }
 function refreshItems(){ items.splice(0,items.length,...document.querySelectorAll('#list img')); }
@@ -192,18 +192,18 @@ function startEditShot(span,fullName,cb){
 }
 
 // Render a snapshot entry
-function addShot(name,time){
+function addShot(name,plannedTime,seekTime){
   let currentName=name;
   const div=document.createElement('div'); div.className='shot';
   const img=document.createElement('img'); img.src=`${snapUrl}/${currentName}`; img.dataset.full=img.src; img.addEventListener('click',e=>{e.stopPropagation();showImage(img);});
   const info=document.createElement('div'); info.className='info';
   const nameSpan=document.createElement('span'); nameSpan.className='name'; nameSpan.textContent=currentName;
   nameSpan.addEventListener('click',e=>{ e.stopPropagation(); startEditShot(nameSpan,currentName,async(val)=>{ const nn=await renameShot(currentName,val); if(nn){ currentName=nn; nameSpan.textContent=nn; img.src=`${snapUrl}/${currentName}`; img.dataset.full=img.src; } }); });
-  const timeSpan=document.createElement('span'); timeSpan.className='time'; timeSpan.dataset.t=time; timeSpan.textContent=time.toFixed(2)+'s';
+  const timeSpan=document.createElement('span'); timeSpan.className='time'; timeSpan.dataset.t=plannedTime; timeSpan.textContent=plannedTime.toFixed(2)+'s';
   info.append(nameSpan,timeSpan);
   const del=document.createElement('button'); del.className='btn'; del.textContent='{{ t('delete','删除') }}';
   del.addEventListener('click',async e=>{ e.stopPropagation(); if(!confirm('{{ t('confirm_delete','删除?') }}')) return; await fetch(`${snapUrl}/${encodeURIComponent(currentName)}/delete`,{method:'POST'}); div.remove(); refreshItems(); });
-  div.addEventListener('click',e=>{ if(e.target===nameSpan||e.target===del||e.target.tagName==='INPUT')return; video.currentTime=time; });
+  div.addEventListener('click',e=>{ if(e.target===nameSpan||e.target===del||e.target.tagName==='INPUT')return; video.currentTime=seekTime; });
   div.append(img,info,del); shots.appendChild(div); sortShots();
 }
 

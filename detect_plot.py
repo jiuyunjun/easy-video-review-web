@@ -22,6 +22,7 @@ if not os.environ.get("DISPLAY") and os.name != "nt":
     matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt
+import matplotlib.ticker as mticker
 import numpy as np
 
 try:
@@ -206,18 +207,67 @@ def plot_content_val(
     plt.xlabel("Time (s)")
     plt.ylabel("content_val")
     plt.title("PySceneDetect: content_val vs Time")
-    # thin horizontal reference lines every 5 units on the y-axis
-    y_max = float(v_arr.max()) if v_arr.size else 0.0
-    y_max = math.ceil(y_max / 5.0) * 5.0
-    for y in np.arange(0, y_max + 0.1, 5.0):
+
+    # choose denser but readable tick steps
+    ax = plt.gca()
+    # X axis (time) step based on span
+    if t_arr.size:
+        x_span = float(t_arr[-1] - t_arr[0])
+    else:
+        x_span = 0.0
+
+    def _x_steps(span: float) -> tuple[float, float]:
+        # major, minor in seconds
+        if span <= 60:           # <= 1 min
+            return 5.0, 1.0
+        if span <= 5 * 60:       # <= 5 min
+            return 15.0, 5.0
+        if span <= 30 * 60:      # <= 30 min
+            return 60.0, 10.0
+        if span <= 2 * 3600:     # <= 2 h
+            return 300.0, 60.0
+        return 600.0, 120.0      # very long
+
+    x_major, x_minor = _x_steps(x_span)
+    if x_major > 0 and x_minor > 0:
+        ax.xaxis.set_major_locator(mticker.MultipleLocator(x_major))
+        ax.xaxis.set_minor_locator(mticker.MultipleLocator(x_minor))
+
+    # Y axis step: slightly denser than previous fixed 5.0
+    y_max_val = float(v_arr.max()) if v_arr.size else 0.0
+    # pick a sensible major step by range
+    if y_max_val <= 20:
+        y_major = 2.0
+    elif y_max_val <= 50:
+        y_major = 2.0
+    elif y_max_val <= 200:
+        y_major = 5.0
+    else:
+        y_major = 10.0
+    y_minor = y_major / 2.0
+    ax.yaxis.set_major_locator(mticker.MultipleLocator(y_major))
+    ax.yaxis.set_minor_locator(mticker.MultipleLocator(y_minor))
+
+    # thin horizontal reference lines at every y_major
+    y_grid_max = math.ceil(y_max_val / y_major) * y_major if y_major > 0 else y_max_val
+    for y in np.arange(0, y_grid_max + 1e-6, y_major):
         plt.axhline(y, color="gray", linestyle="--", linewidth=0.5, alpha=0.5, zorder=0)
+
+    # vertical cut lines
     for (start_tc, _end_tc) in scenes:
         cut_sec = start_tc.get_seconds()
         plt.axvline(cut_sec, linestyle="--", alpha=0.5)
+
+    # red mid points (low-diff)
     mid_x = [m for m in mid_times if m is not None]
     if mid_x:
         mid_y = np.interp(mid_x, t_arr, v_arr)
         plt.scatter(mid_x, mid_y, s=16, c="red", zorder=3)
+
+    # make minor ticks visible
+    ax.tick_params(which='both', direction='in', top=True, right=True, length=4)
+    ax.tick_params(which='minor', length=2)
+
     plt.tight_layout()
     work_dir.mkdir(parents=True, exist_ok=True)
     png_path = work_dir / f"{video_path.stem}.content_val.png" if save_png else None
@@ -269,6 +319,12 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
         show=cfg.show_plot,
         verbose=cfg.verbose,
     )
+    # extract a numeric fps from SceneDetect's base_timecode for downstream alignment
+    try:
+        tc = video_obj.base_timecode.framerate
+        tc_fps = float(tc.num) / float(tc.den)
+    except Exception:
+        tc_fps = 0.0
     return {
         "csv": csv_out,
         "png": png_path,
@@ -278,6 +334,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
         "mid_times": mid_times,
         "times": t_arr,
         "cvals": v_arr,
+        "tc_fps": tc_fps,
     }
 
 

@@ -15,7 +15,7 @@ from functools import lru_cache
 from pathlib import Path
 from urllib.parse import quote
 
-from auto_scene import detect_scenes
+from auto_scene import detect_scenes as legacy_detect_scenes
 from flask import (
     Flask, request, render_template, abort, flash, send_file, Response, redirect, url_for, jsonify, g
 )
@@ -310,15 +310,36 @@ def review_snapshots(album_name, filename):
     d = snapshot_dir(album, fname)
     if request.method == 'GET':
         items = []
+        manifest = {}
+        man_path = os.path.join(d, 'index.json')
+        try:
+            with open(man_path, 'r', encoding='utf-8') as f:
+                import json as _json
+                data = _json.load(f)
+                for ent in (data.get('entries') or []):
+                    name = str(ent.get('name') or '')
+                    if name:
+                        manifest[name] = {
+                            'planned': float(ent.get('planned') or 0.0),
+                            'actual': float(ent.get('actual') or 0.0),
+                        }
+        except Exception:
+            pass
+
         for n in os.listdir(d):
-            if n.lower().endswith('.jpg'):
+            if not n.lower().endswith('.jpg'):
+                continue
+            info = manifest.get(n)
+            if info:
+                items.append({'name': n, 'time': info['planned'], 'actual': info['actual']})
+            else:
                 base = os.path.splitext(n)[0]
                 part = base.rsplit('_', 1)[-1]
                 try:
                     t = float(part)
                 except Exception:
                     t = 0.0
-                items.append({'name': n, 'time': t})
+                items.append({'name': n, 'time': t, 'actual': t})
         items.sort(key=lambda x: x['time'])
         return jsonify(items)
     data = request.get_json(force=True)
@@ -361,6 +382,23 @@ def review_snapshot_rename(album_name, filename, snap_name):
     if os.path.isfile(dst):
         return jsonify({'ok': False, 'msg': 'exists'}), 400
     os.rename(src, dst)
+    # Update manifest index.json if present
+    try:
+        man_path = os.path.join(d, 'index.json')
+        import json as _json
+        with open(man_path, 'r', encoding='utf-8') as f:
+            data = _json.load(f)
+        entries = data.get('entries') or []
+        for ent in entries:
+            if str(ent.get('name')) == snap:
+                ent['name'] = new
+                break
+        tmp_path = man_path + '.tmp'
+        with open(tmp_path, 'w', encoding='utf-8') as f:
+            _json.dump({'entries': entries}, f, ensure_ascii=False)
+        os.replace(tmp_path, man_path)
+    except Exception:
+        pass
     return jsonify({'ok': True, 'name': new})
 
 @app.route("/<album_name>/review/<path:filename>/snapshots/<snap_name>/delete", methods=['POST'])
@@ -372,6 +410,19 @@ def review_snapshot_delete(album_name, filename, snap_name):
     path = os.path.join(d, snap)
     if os.path.isfile(path):
         os.remove(path)
+    # Remove from manifest if present
+    try:
+        man_path = os.path.join(d, 'index.json')
+        import json as _json
+        with open(man_path, 'r', encoding='utf-8') as f:
+            data = _json.load(f)
+        entries = [ent for ent in (data.get('entries') or []) if str(ent.get('name')) != snap]
+        tmp_path = man_path + '.tmp'
+        with open(tmp_path, 'w', encoding='utf-8') as f:
+            _json.dump({'entries': entries}, f, ensure_ascii=False)
+        os.replace(tmp_path, man_path)
+    except Exception:
+        pass
     return jsonify({'ok': True})
 
 @app.route("/<album_name>/review/<path:filename>/snapshots/delete_all", methods=['POST'])
@@ -385,6 +436,13 @@ def review_snapshot_delete_all(album_name, filename):
                 os.remove(os.path.join(d, n))
             except FileNotFoundError:
                 pass
+    # Reset manifest
+    try:
+        man_path = os.path.join(d, 'index.json')
+        if os.path.isfile(man_path):
+            os.remove(man_path)
+    except Exception:
+        pass
     return jsonify({'ok': True})
 
 
@@ -474,6 +532,169 @@ def _auto_split_worker(album: str, fname: str, threshold: float):
     AUTO_PROGRESS.pop(key, None)
 
 
+def _auto_split_worker2(album: str, fname: str, threshold: float):
+    """Auto scene split using the same mid-times as the plot for consistency."""
+    key = f"{album}/{fname}"
+    src = os.path.join(UPLOAD_ROOT, album, fname)
+    out_dir = snapshot_dir(album, fname)
+
+    try:
+        import cv2
+    except Exception:
+        AUTO_RESULT[key] = {"ok": False, "msg": "missing dependency", "saved": 0}
+        AUTO_PROGRESS.pop(key, None)
+        return
+
+    cap = cv2.VideoCapture(src)
+    if not cap.isOpened():
+        AUTO_RESULT[key] = {"ok": False, "msg": "open failed", "saved": 0}
+        AUTO_PROGRESS.pop(key, None)
+        return
+
+    fps = cap.get(cv2.CAP_PROP_FPS) or 0.0
+    frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+    saved = 0
+
+    def save_frame(path, frame):
+        ret, buf = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
+        if ret:
+            buf.tofile(path)
+
+    plot_url = None
+    scene_cut_secs = []
+    mid_times = []
+    saved_times = []  # planned times (used in filenames)
+    actual_saved_times = []  # actual decoded frame timestamps
+    manifest_entries = []  # [{'name': str, 'planned': float, 'actual': float}]
+
+    try:
+        from detect_plot import PipelineConfig, run_pipeline
+        tmp_dir = Path(tempfile.mkdtemp())
+        cfg = PipelineConfig(
+            video_path=Path(src),
+            detect_threshold=threshold,
+            diff_threshold=threshold,
+            out_dir=None,  # export frames ourselves
+            work_dir=tmp_dir,
+            show_plot=False,
+            save_svg=False,
+            verbose=False,
+        )
+        res = run_pipeline(cfg)
+
+        png_path = res.get("png")
+        if png_path and os.path.isfile(png_path):
+            token = uuid.uuid4().hex
+            TEMP_PLOTS[token] = str(png_path)
+            plot_url = f"/__plot/{token}"
+
+        scenes = res.get("scenes") or []
+        mid_times = res.get("mid_times") or []
+        scene_cut_secs = [float(s[0].get_seconds()) for s in scenes]
+        tc_fps = float(res.get("tc_fps") or 0.0)
+
+        # Detection done
+        AUTO_PROGRESS[key] = 0.5
+
+        valid = [(i + 1, s, mt) for i, (s, mt) in enumerate(zip(scenes, mid_times)) if mt is not None]
+        total = len(valid)
+        if total == 0:
+            if frame_count > 0:
+                mid_f = int(frame_count // 2)
+                cap.set(cv2.CAP_PROP_POS_FRAMES, mid_f)
+                ok, frame = cap.read()
+                if ok and frame is not None:
+                    actual = cap.get(cv2.CAP_PROP_POS_MSEC) / 1000.0 if fps > 0 else 0.0
+                    name = f"scene1_{actual:.3f}.jpg"
+                    save_frame(os.path.join(out_dir, name), frame)
+                    saved = 1
+                    saved_times.append(actual)
+        else:
+            # prefer SceneDetect base_timecode fps if available to match plot timing
+            use_fps = tc_fps if tc_fps > 0 else fps
+            for idx, ((start_tc, _end_tc), mid_s) in enumerate((s, mt) for _, s, mt in valid):
+                target_frame = int(round((mid_s or 0.0) * use_fps)) if use_fps > 0 else 0
+                cap.set(cv2.CAP_PROP_POS_FRAMES, target_frame)
+                ok, frame = cap.read()
+                if not ok or frame is None:
+                    start_s = start_tc.get_seconds()
+                    cap.set(cv2.CAP_PROP_POS_FRAMES, int(round(start_s * use_fps)) if use_fps > 0 else 0)
+                    ok, frame = cap.read()
+                if not ok or frame is None:
+                    continue
+                actual = cap.get(cv2.CAP_PROP_POS_MSEC) / 1000.0 if use_fps > 0 else (mid_s or 0.0)
+                # Use planned mid_s for filename so it matches the plot's red point
+                planned = float(mid_s or 0.0)
+                name = f"scene{idx+1}_{planned:.3f}.jpg"
+                save_frame(os.path.join(out_dir, name), frame)
+                saved += 1
+                saved_times.append(planned)
+                actual_saved_times.append(float(actual))
+                manifest_entries.append({"name": name, "planned": planned, "actual": float(actual)})
+                if total:
+                    AUTO_PROGRESS[key] = 0.5 + 0.5 * ((idx + 1) / total)
+    except Exception:
+        # Fallback: legacy mid-frame per scene list
+        try:
+            fps2, frame_cnt2, scene_list = legacy_detect_scenes(src, threshold)
+            fps = fps or fps2
+            frame_count = frame_count or frame_cnt2
+            AUTO_PROGRESS[key] = 0.5
+            if not scene_list:
+                if frame_count > 0:
+                    mid_f = int(frame_count // 2)
+                    cap.set(cv2.CAP_PROP_POS_FRAMES, mid_f)
+                    ok, frame = cap.read()
+                    if ok and frame is not None:
+                        actual = cap.get(cv2.CAP_PROP_POS_MSEC) / 1000.0 if fps > 0 else 0.0
+                        name = f"scene1_{actual:.3f}.jpg"
+                        save_frame(os.path.join(out_dir, name), frame)
+                        saved = 1
+                        saved_times.append(actual)
+            else:
+                total = len(scene_list)
+                for i, (start_f, end_f) in enumerate(scene_list, start=1):
+                    if end_f <= start_f:
+                        continue
+                    mid_f = start_f + (end_f - start_f) // 2
+                    cap.set(cv2.CAP_PROP_POS_FRAMES, mid_f)
+                    ok, frame = cap.read()
+                    if not ok or frame is None:
+                        continue
+                    actual = cap.get(cv2.CAP_PROP_POS_MSEC) / 1000.0 if fps > 0 else 0.0
+                    name = f"scene{i}_{actual:.3f}.jpg"
+                    save_frame(os.path.join(out_dir, name), frame)
+                    saved += 1
+                    saved_times.append(actual)
+                    AUTO_PROGRESS[key] = 0.5 + 0.5 * (i / total)
+        except Exception:
+            pass
+    finally:
+        cap.release()
+
+    # persist a manifest with planned vs actual times for UI alignment
+    try:
+        import json as _json
+        man_path = os.path.join(out_dir, "index.json")
+        tmp_path = man_path + ".tmp"
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            _json.dump({"entries": manifest_entries}, f, ensure_ascii=False)
+        os.replace(tmp_path, man_path)
+    except Exception:
+        pass
+
+    AUTO_RESULT[key] = {
+        "ok": True,
+        "saved": saved,
+        "plot": plot_url,
+        # helpful debug fields for verification
+        "scene_cuts": scene_cut_secs,
+        "plot_mid_times": mid_times,
+        "saved_times": saved_times,
+        "actual_saved_times": actual_saved_times,
+    }
+    AUTO_PROGRESS.pop(key, None)
+
 @app.route("/<album_name>/review/<path:filename>/snapshots/auto", methods=['POST'])
 def review_snapshot_auto(album_name, filename):
     """Kick off background auto scene detection."""
@@ -494,7 +715,7 @@ def review_snapshot_auto(album_name, filename):
 
     AUTO_PROGRESS[key] = 0.0
     AUTO_RESULT.pop(key, None)
-    executor.submit(_auto_split_worker, album, fname, threshold)
+    executor.submit(_auto_split_worker2, album, fname, threshold)
     return jsonify({'ok': True})
 
 
